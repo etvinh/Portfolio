@@ -24,7 +24,7 @@ Handoff for Claude Code. This repo currently contains an **interactive 3D protot
 | UI / client state | **React** (hooks/context; no heavy state lib unless justified) |
 | 3D | **Three.js** (port the prototype's scene) |
 | DB | **Postgres** |
-| DB access | **`postgres`** (postgres.js) driver — raw SQL via tagged-template queries (auto-parameterized, safe from SQLi). Migrations are plain `.sql` files in `lib/db/migrations/`, applied by a small Node runner that records state in a `_migrations` table. No ORM. |
+| DB access | **`postgres`** (postgres.js) driver — raw SQL via tagged-template queries (auto-parameterized, safe from SQLi). Schema lives in `db/schema.sql`; no migration system — schema changes ship by wiping and replaying. No ORM. |
 | Testing | **Vitest** — UI tests (Testing Library + jsdom) **and** backend service tests |
 | Auth (minigame) | Username + password, **bcryptjs** hashing + **jose** httpOnly JWT session |
 
@@ -36,16 +36,20 @@ These are scaffolded — wire your code to them, don't reinvent:
 
 | File | Purpose |
 |---|---|
-| `package.json` | Pinned deps + scripts (`dev`, `db:up`, `db:migrate`, `db:seed`, `test`, `test:ui`, `test:services`, `setup`) |
-| `docker-compose.yml` | Local Postgres 16 with healthcheck |
-| `db/init/01-init.sql` | First-boot: `citext` extension + creates the `brickvoyage_test` DB |
+| `package.json` | Pinned deps + scripts (`dev`, `db:up`, `db:reset`, `test`, `test:ui`, `test:services`, `setup`, `package`) |
+| `docker-compose.yml` | Local Postgres 16 with healthcheck. Postgres runs as its own container — **not** bundled into the app image. |
+| `db/database.sql` | First-boot DB bootstrap: `citext` extension + creates the `brickvoyage_test` DB. |
+| `db/schema.sql` | Canonical table DDL (mirrors §7). Applied to dev DB on first boot; the Vitest service-test setup re-applies it to `brickvoyage_test`. |
+| `db/data.sql` | Sample data — to be populated. Runs after `schema.sql`. |
 | `.env.example` | `DATABASE_URL`, `DATABASE_URL_TEST`, `SESSION_SECRET` |
 | `vitest.config.ts` | jsdom for `test/ui/**`, node for `test/services/**`; service tests run single-threaded |
 | `test/setup.ts` | jest-dom matchers + WebGL/WebAudio stubs for jsdom |
 
-**One-command bootstrap:** `npm run setup` (copies `.env`, installs, starts DB, migrates, seeds). Then `npm run dev`.
+**One-command bootstrap:** `npm run setup` (copies `.env`, installs, starts the Postgres container — `database.sql` → `schema.sql` → `data.sql` run automatically on first boot of the empty volume). Then `npm run dev`.
 
-Files you still need to create: `lib/db/client.ts`, `lib/db/migrate.ts` (the tiny migration runner), `lib/db/migrations/001_init.sql` (schema from §7), `lib/db/seed.ts`, the `lib/services/*`, the Next.js app, and the test files.
+**No migrations.** Schema evolves by editing `db/schema.sql` and running `npm run db:reset` (wipes the volume + replays the three files). This is fine for a portfolio; revisit if/when real user data needs to survive a schema change.
+
+Files you still need to create: `lib/db/client.ts`, the `lib/services/*`, the Next.js app, and the test files.
 
 ---
 
@@ -67,7 +71,7 @@ components/
   Race/                    # minigame UI (start, timer, results, save-score form)
 lib/
   three/                   # scene setup, island builders, collision, camera (ported)
-  db/                      # schema, client, migrations
+  db/                      # schema.sql, database.sql, data.sql (at repo root, not under lib/)
   services/                # business logic (TESTED with Vitest service tests)
     stats.service.ts
     leaderboard.service.ts
@@ -148,7 +152,9 @@ Add a **new island** ("Race Cove") whose panel launches a **timed boat race**:
 
 ---
 
-## 7. Postgres schema (starting point)
+## 7. Postgres schema
+
+Lives in `db/schema.sql` (already in the repo). The starting layout:
 
 ```sql
 -- visitors / analytics
@@ -190,7 +196,7 @@ Aggregates for `/api/stats`:
 - found-all = `COUNT(*) FROM visitors WHERE found_all`
 - per-island = `island_id, COUNT(*) FROM island_discoveries GROUP BY island_id`
 
-Provide SQL migrations and a seed script. Use a **separate test database** for Vitest service tests.
+Use a **separate test database** for Vitest service tests (`brickvoyage_test`, created by `db/database.sql`). The service-test setup re-applies `db/schema.sql` against it on suite startup, then truncates between tests.
 
 ---
 
@@ -217,7 +223,7 @@ Use transactional fixtures or truncate-between-tests. Add `pnpm test` / `npm tes
 ## 9. Env & ops
 
 - `.env`: `DATABASE_URL`, `DATABASE_URL_TEST`, `SESSION_SECRET`, plus any pool config.
-- Document local setup: `docker compose up` Postgres (provide a compose file), run migrations, seed, `dev`.
+- Document local setup: `docker compose up` Postgres (the three SQL files auto-apply on first boot), then `npm run dev`.
 
 ### Deployment: behind nginx (TLS terminated upstream)
 
@@ -233,34 +239,39 @@ Ship a sample `nginx.conf` snippet alongside `docker-compose.yml` showing `proxy
 
 - Pool Postgres connections for a long-lived Node server (not serverless). A single pool sized to app concurrency is fine.
 
-### Packaging & deploy: single container on EC2
+### Packaging & deploy: web container on EC2 (Postgres is a sibling)
 
-Production runs as **one Docker container on a single EC2 instance** holding nginx (TLS terminator + reverse proxy), the Next.js Node server, and Postgres. Deployment is a tarball drop — EC2 does not build, only `docker load` + `docker run`.
+Production layout on the EC2 host:
 
-**Build / ship / run loop:**
+- **`brick-voyage-web` container** — nginx (TLS terminator + reverse proxy) + Next.js Node server. This is the artifact `npm run package` produces.
+- **`brick-voyage-db` container** — Postgres 16, run from the official `postgres:16` image with the same `db/*.sql` files mounted into `docker-entrypoint-initdb.d/` (mirroring `docker-compose.yml`). Lives on a named volume (`brickvoyage-pgdata`).
 
-1. **Local:** `npm run package` runs `next build`, builds the production image, and `docker save`s it as `dist/brick-voyage.tar.gz`.
+The web container talks to the DB container over Docker's user-defined bridge network. **Postgres is never in the web image.** This keeps the deploy artifact small, lets us restart the app without touching the DB, and lets us swap Postgres for RDS later without code changes.
+
+**Build / ship / run loop (web only):**
+
+1. **Local:** `npm run package` runs `next build`, builds the web image, and `docker save`s it as `dist/brick-voyage.tar.gz`.
 2. **Ship:** `scp dist/brick-voyage.tar.gz ec2:/tmp/`.
-3. **EC2:** `docker load -i /tmp/brick-voyage.tar.gz && docker run -d --restart unless-stopped --env-file .env -v brickvoyage-pgdata:/var/lib/postgresql/data -v brickvoyage-tls:/etc/nginx/tls -p 443:443 -p 80:80 brick-voyage:latest`.
+3. **EC2:** `docker load -i /tmp/brick-voyage.tar.gz && docker compose up -d` (the prod compose file declares both `web` and `db` services on a shared network).
 
-**Container layout:**
-- **Multi-stage `Dockerfile`:** builder stage runs `next build` (use Next.js `output: 'standalone'` to slim the runtime image); runtime stage installs nginx + Postgres 16 + Node, copies the standalone output, and ships an entrypoint script.
-- **Entrypoint** (small bash script or `s6-overlay`): start Postgres → wait for healthy → run pending migrations → start Next.js + nginx. Container PID 1 supervises all three; any one exiting brings the container down so Docker restarts it.
-- **Persistent state lives on named Docker volumes** (`brickvoyage-pgdata`, `brickvoyage-tls`) so container replacement does not wipe the DB or certs.
-- **Inside-container `DATABASE_URL` points at `localhost:5432`** — Postgres is in the same network namespace.
+**Web container layout:**
+- **Multi-stage `Dockerfile`:** builder stage runs `next build` (use Next.js `output: 'standalone'` to slim the runtime image); runtime stage installs nginx + Node, copies the standalone output, ships a small entrypoint that starts Next.js in the background and execs nginx in the foreground (PID 1).
+- **Persistent state on a named Docker volume for TLS material** (`brickvoyage-tls`).
+- **`DATABASE_URL` inside the web container** points at `db:5432` (the compose service name on the shared network), not `localhost`.
 
-**Not in the image:**
+**Not in the web image:**
 - `.env` (mount via `--env-file` at run time).
 - TLS cert + key material (mount the `brickvoyage-tls` volume; certs renewed on host).
+- Postgres — separate container.
 
 **The `package` script** (add to `package.json`):
 ```json
-"package": "next build && docker build -t brick-voyage:latest . && mkdir -p dist && docker save brick-voyage:latest | gzip > dist/brick-voyage.tar.gz"
+"package": "next build && docker build -t brick-voyage-web:latest . && mkdir -p dist && docker save brick-voyage-web:latest | gzip > dist/brick-voyage.tar.gz"
 ```
 
-**Out of scope** for this build: zero-downtime deploys (a brief `docker stop && docker run` is fine for a portfolio), DB backups (document a `pg_dump` cron, don't implement), multi-host orchestration.
+**Out of scope** for this build: zero-downtime deploys (a brief `docker compose up -d` is fine for a portfolio — only `web` restarts, the DB container stays up), DB backups (document a `pg_dump` cron, don't implement), multi-host orchestration.
 
-**Local dev is unchanged** — `docker-compose.yml` still runs Postgres only; the Next.js dev server runs on the host via `npm run dev`. The all-in-one image is a production artifact, not a development tool.
+**Local dev is unchanged** — `docker-compose.yml` runs Postgres only; the Next.js dev server runs on the host via `npm run dev`. The packaged web image is a production artifact, not a development tool.
 
 ---
 
@@ -270,11 +281,12 @@ Production runs as **one Docker container on a single EC2 instance** holding ngi
 - [ ] Existing islands/panels migrated with TODO content markers.
 - [ ] Stats island: live server aggregates render; visits/discoveries recorded.
 - [ ] Race Cove: playable timed race, score save behind username+password (hashed), leaderboard renders.
-- [ ] Postgres schema + migrations + seed + docker compose (dev).
-- [ ] Vitest UI **and** service suites pass; `npm test` green in CI.
+- [ ] `db/database.sql`, `db/schema.sql`, `db/data.sql` boot a working Postgres on `npm run db:up`. `data.sql` has sample rows that make the leaderboard + stats panels render with real-looking data.
+- [ ] Vitest UI **and** service suites pass; service tests reapply `schema.sql` to `brickvoyage_test` and truncate between tests; `npm test` green in CI.
 - [ ] No secrets committed; passwords hashed; basic rate limiting on auth + score endpoints (rate-limit keyed on the `X-Forwarded-For` client IP).
-- [ ] `npm run package` produces `dist/brick-voyage.tar.gz` — a single image with nginx + Next.js + Postgres + entrypoint, deployable to EC2 with `docker load` + `docker run`.
-- [ ] Sample `nginx.conf` ships in the image and terminates TLS, sets `X-Forwarded-Proto`/`-For`/`Host`, and proxies to Next.js on `localhost`.
+- [ ] `npm run package` produces `dist/brick-voyage.tar.gz` — the web image (nginx + Next.js + entrypoint, **no Postgres**), deployable to EC2 with `docker load` + `docker compose up -d`.
+- [ ] Sample `nginx.conf` ships in the web image and terminates TLS, sets `X-Forwarded-Proto`/`-For`/`Host`, and proxies to Next.js on `localhost`.
+- [ ] Production `docker-compose.yml` declares `web` + `db` services on a shared network; web's `DATABASE_URL` resolves `db` by service name.
 
 ---
 

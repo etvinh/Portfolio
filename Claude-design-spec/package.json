@@ -13,8 +13,6 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d",
-    "db:migrate": "tsx lib/db/migrate.ts",
-    "db:seed": "tsx lib/db/seed.ts",
 
     "test": "vitest run",
     "test:watch": "vitest",
@@ -22,7 +20,7 @@
     "test:services": "vitest run test/services",
     "test:coverage": "vitest run --coverage",
 
-    "setup": "cp -n .env.example .env || true && npm install && npm run db:up && sleep 4 && npm run db:migrate && npm run db:seed"
+    "setup": "cp -n .env.example .env || true && npm install && npm run db:up"
   },
   "dependencies": {
     "next": "^15.0.0",
@@ -47,7 +45,6 @@
     "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/user-event": "^14.5.0",
     "jsdom": "^25.0.0",
-    "@vitest/coverage-v8": "^2.1.0",
-    "tsx": "^4.19.0"
+    "@vitest/coverage-v8": "^2.1.0"
   }
 }

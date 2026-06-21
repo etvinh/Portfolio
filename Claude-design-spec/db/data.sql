@@ -1,0 +1,5 @@
+-- Sample data for Brick Voyage. Runs after schema.sql on a fresh Postgres
+-- volume (against the `brickvoyage` DB).
+--
+-- TODO: populate with sample visitors / discoveries / users / race_scores
+-- to make the leaderboard + stats panels look real on first boot.
