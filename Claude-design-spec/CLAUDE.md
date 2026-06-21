@@ -24,7 +24,7 @@ Handoff for Claude Code. This repo currently contains an **interactive 3D protot
 | UI / client state | **React** (hooks/context; no heavy state lib unless justified) |
 | 3D | **Three.js** (port the prototype's scene) |
 | DB | **Postgres** |
-| DB access | **Drizzle ORM** + `postgres` (postgres.js) driver — typed queries, SQL migrations via `drizzle-kit`. (Starter config provided; swap to Prisma only with reason.) |
+| DB access | **`postgres`** (postgres.js) driver — raw SQL via tagged-template queries (auto-parameterized, safe from SQLi). Migrations are plain `.sql` files in `lib/db/migrations/`, applied by a small Node runner that records state in a `_migrations` table. No ORM. |
 | Testing | **Vitest** — UI tests (Testing Library + jsdom) **and** backend service tests |
 | Auth (minigame) | Username + password, **bcryptjs** hashing + **jose** httpOnly JWT session |
 
@@ -40,13 +40,12 @@ These are scaffolded — wire your code to them, don't reinvent:
 | `docker-compose.yml` | Local Postgres 16 with healthcheck |
 | `db/init/01-init.sql` | First-boot: `citext` extension + creates the `brickvoyage_test` DB |
 | `.env.example` | `DATABASE_URL`, `DATABASE_URL_TEST`, `SESSION_SECRET` |
-| `drizzle.config.ts` | Points at `lib/db/schema.ts`, migrations to `lib/db/migrations` |
 | `vitest.config.ts` | jsdom for `test/ui/**`, node for `test/services/**`; service tests run single-threaded |
 | `test/setup.ts` | jest-dom matchers + WebGL/WebAudio stubs for jsdom |
 
 **One-command bootstrap:** `npm run setup` (copies `.env`, installs, starts DB, migrates, seeds). Then `npm run dev`.
 
-Files you still need to create: `lib/db/schema.ts` (Drizzle schema from §7), `lib/db/client.ts`, `lib/db/seed.ts`, the `lib/services/*`, the Next.js app, and the test files.
+Files you still need to create: `lib/db/client.ts`, `lib/db/migrate.ts` (the tiny migration runner), `lib/db/migrations/001_init.sql` (schema from §7), `lib/db/seed.ts`, the `lib/services/*`, the Next.js app, and the test files.
 
 ---
 
