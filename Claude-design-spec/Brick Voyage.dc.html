@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+  <style>
+    html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#9fd3ff;font-family:'Nunito',system-ui,sans-serif;-webkit-tap-highlight-color:transparent;}
+    *{box-sizing:border-box;}
+    canvas{display:block;}
+    @keyframes bwfloat{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,-7px)}}
+    @keyframes bwpop{0%{transform:scale(.9);opacity:0}100%{transform:scale(1);opacity:1}}
+    .bw-scroll::-webkit-scrollbar{width:8px}.bw-scroll::-webkit-scrollbar-thumb{background:#cdd7e0;border-radius:8px}
+  </style>
+</helmet>
+<div style="position:fixed; inset:0; overflow:hidden;">
+
+  <div id="bw-stage" ref="{{ mountRef }}" style="position:absolute; inset:0;"></div>
+
+  <!-- Title / controls chip -->
+  <div style="position:absolute; top:16px; left:16px; background:rgba(255,255,255,.82); border-radius:16px; padding:10px 16px; box-shadow:0 6px 18px rgba(11,58,102,.18); backdrop-filter:blur(4px); pointer-events:none;">
+    <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:19px; color:#e8590c; letter-spacing:.3px; line-height:1;">Brick&nbsp;Voyage</div>
+    <div style="font-size:11.5px; font-weight:700; color:#5a6b7a; margin-top:5px;">WASD&nbsp;/&nbsp;arrows to sail&nbsp;&nbsp;·&nbsp;&nbsp;E to dock</div>
+    <div style="display:flex; align-items:center; gap:6px; margin-top:7px; white-space:nowrap;"><span style="display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:5px; background:#ffd43b; color:#fff; font-size:11px; line-height:1; flex:none;">★</span><span style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:12px; color:#e8a700;">{{ discovered }}</span></div>
+  </div>
+
+  <!-- Achievement toast -->
+  <sc-if value="{{ showToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; top:84px; left:50%; transform:translateX(-50%); z-index:25; display:flex; align-items:center; gap:13px; background:#fff; border-radius:18px; padding:12px 20px 12px 13px; box-shadow:0 14px 34px rgba(8,30,55,.34); border-bottom:5px solid #e8a700; animation:bwpop .26s ease-out;">
+      <div style="width:44px; height:44px; border-radius:13px; background:#ffd43b; border-bottom:3px solid #e8a700; display:flex; align-items:center; justify-content:center; color:#fff; font-size:24px; line-height:1;">★</div>
+      <div>
+        <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:#e8a700;">{{ toastKicker }}</div>
+        <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:17px; color:#1d2b36; line-height:1.15;">{{ toastTitle }}</div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- Sound toggle -->
+  <button onClick="{{ onToggleSound }}" style="position:absolute; top:16px; right:16px; height:46px; display:flex; align-items:center; gap:8px; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:13px; color:#1c4a72; background:rgba(255,255,255,.82); border:none; border-radius:14px; padding:0 16px; box-shadow:0 6px 18px rgba(11,58,102,.18); backdrop-filter:blur(4px); cursor:pointer;">
+    <span style="font-size:17px; line-height:1;">{{ soundIcon }}</span><span>{{ soundLabel }}</span>
+  </button>
+
+  <!-- Minimap + Lost button -->
+  <div style="position:absolute; bottom:18px; right:18px; display:flex; flex-direction:column; gap:10px; align-items:flex-end;">
+    <canvas id="bw-mini" ref="{{ miniRef }}" width="160" height="160" style="width:152px; height:152px; border-radius:20px; border:4px solid #fff; box-shadow:0 8px 22px rgba(11,58,102,.28); background:#0b3a66;"></canvas>
+    <button onClick="{{ onLost }}" style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:13px; color:#fff; background:#1c7ed6; border:none; border-bottom:4px solid #1457a0; border-radius:13px; padding:9px 16px; cursor:pointer; box-shadow:0 5px 14px rgba(20,87,160,.35);">Lost? Sail home</button>
+  </div>
+
+  <!-- Dock prompt -->
+  <sc-if value="{{ showPrompt }}" hint-placeholder-val="{{ false }}">
+    <button onClick="{{ onDock }}" style="position:absolute; bottom:34px; left:50%; transform:translate(-50%,0); animation:bwfloat 2.2s ease-in-out infinite; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:16px; color:#3a2a12; background:#ffd43b; border:none; border-bottom:5px solid #e8a700; border-radius:16px; padding:12px 22px; cursor:pointer; box-shadow:0 10px 26px rgba(232,167,0,.4); white-space:nowrap;">
+      Press <span style="background:#fff; border-radius:6px; padding:1px 8px; border-bottom:2px solid #d7b500;">E</span> / tap to dock at <b>{{ dockName }}</b>
+    </button>
+  </sc-if>
+
+  <!-- Mobile joystick -->
+  <sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+    <div ref="{{ joyBaseRef }}" style="position:absolute; bottom:34px; left:34px; width:128px; height:128px; border-radius:50%; background:rgba(255,255,255,.22); border:3px solid rgba(255,255,255,.65); box-shadow:0 8px 22px rgba(11,58,102,.22); touch-action:none;">
+      <div ref="{{ joyKnobRef }}" style="position:absolute; top:50%; left:50%; width:58px; height:58px; margin:-29px 0 0 -29px; border-radius:50%; background:#fff; border-bottom:4px solid #cdd7e0; box-shadow:0 4px 10px rgba(11,58,102,.25); will-change:transform;"></div>
+    </div>
+  </sc-if>
+
+  <!-- ===================== PANELS ===================== -->
+
+  <!-- HOME / About -->
+  <sc-if value="{{ isHome }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:20px; z-index:20;">
+      <div onClick="{{ onClose }}" style="position:absolute; inset:0; background:rgba(8,30,55,.46); backdrop-filter:blur(2px);"></div>
+      <div class="bw-scroll" style="position:relative; width:100%; max-width:460px; max-height:84vh; overflow:auto; background:#fff; border-radius:24px; box-shadow:0 24px 60px rgba(8,30,55,.4); animation:bwpop .22s ease-out;">
+        <div style="background:#37b24d; padding:20px 26px 16px; display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; gap:7px;"><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span></div>
+          <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:13px; color:#fff; letter-spacing:1.5px; text-transform:uppercase;">Home Harbor</div>
+        </div>
+        <div style="padding:24px 28px 30px;">
+          <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:28px; color:#1d2b36; line-height:1.1;">Welcome aboard! ⚓</div>
+          <p style="font-size:15px; line-height:1.6; color:#46555f; margin:14px 0 0; text-wrap:pretty;">This is your home harbor. Sail out to explore the archipelago — each island is a different part of my world.</p>
+          <div style="margin-top:18px; display:flex; flex-direction:column; gap:9px;">
+            <div style="display:flex; align-items:center; gap:10px; font-size:13.5px; font-weight:700; color:#46555f;"><span style="width:11px;height:11px;border-radius:50%;background:#82d96b;flex:none;"></span>About Me — my story &amp; resume</div>
+            <div style="display:flex; align-items:center; gap:10px; font-size:13.5px; font-weight:700; color:#46555f;"><span style="width:11px;height:11px;border-radius:50%;background:#fa5252;flex:none;"></span>Contact — LinkedIn &amp; GitHub</div>
+            <div style="display:flex; align-items:center; gap:10px; font-size:13.5px; font-weight:700; color:#46555f;"><span style="width:11px;height:11px;border-radius:50%;background:#b0b8c0;flex:none;"></span>Projects &amp; isles — my work</div>
+          </div>
+          <div style="margin-top:18px; padding:13px 16px; background:#f1f8f3; border-radius:14px; font-size:13px; font-weight:700; color:#2b8a3e;">WASD / arrows to sail · press E to dock · “Sail home” if you get lost.</div>
+        </div>
+        <button onClick="{{ onClose }}" style="position:absolute; top:14px; right:16px; width:34px; height:34px; border-radius:50%; border:none; background:rgba(255,255,255,.3); color:#fff; font-size:18px; cursor:pointer; line-height:1;">✕</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- LIGHTHOUSE / Resume -->
+  <sc-if value="{{ isHouse }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:20px; z-index:20;">
+      <div onClick="{{ onClose }}" style="position:absolute; inset:0; background:rgba(8,30,55,.46); backdrop-filter:blur(2px);"></div>
+      <div class="bw-scroll" style="position:relative; width:100%; max-width:500px; max-height:86vh; overflow:auto; background:#fff; border-radius:24px; box-shadow:0 24px 60px rgba(8,30,55,.4); animation:bwpop .22s ease-out;">
+        <div style="background:#fa5252; padding:20px 26px 16px; display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; gap:7px;"><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span></div>
+          <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:13px; color:#fff; letter-spacing:1.5px; text-transform:uppercase;">About Me</div>
+        </div>
+        <div style="padding:24px 28px 30px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+            <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:24px; color:#1d2b36;">Your Name</div>
+            <a href="#" target="_blank" style="text-decoration:none; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:13px; color:#fff; background:#fa5252; border-bottom:4px solid #c92a2a; border-radius:12px; padding:9px 16px;">Download PDF</a>
+          </div>
+          <div style="font-weight:800; font-size:14px; color:#e8590c; margin-top:3px;">Creative Developer &amp; Builder</div>
+          <div style="font-size:13px; font-weight:800; color:#fa5252; letter-spacing:1px; text-transform:uppercase; margin:20px 0 8px;">About Me</div>
+          <p style="font-size:14px; line-height:1.6; color:#46555f; margin:0;">Ahoy! I build playful, well-engineered things on the web — interactive toys, tools, and the occasional brick boat. I care about craft, motion, and making software people enjoy poking at.</p>
+          <div style="font-size:13px; font-weight:800; color:#fa5252; letter-spacing:1px; text-transform:uppercase; margin:22px 0 8px;">Summary</div>
+          <p style="font-size:14px; line-height:1.6; color:#46555f; margin:0;">Developer with a love for interactive, toy-like interfaces and solid fundamentals. I turn ideas into things people enjoy poking at.</p>
+          <div style="font-size:13px; font-weight:800; color:#fa5252; letter-spacing:1px; text-transform:uppercase; margin:22px 0 8px;">Experience</div>
+          <div style="display:flex; flex-direction:column; gap:14px;">
+            <div><div style="font-weight:800; color:#1d2b36; font-size:15px;">Senior Frontend Engineer · Company</div><div style="font-size:12.5px; color:#8696a3; font-weight:700;">2023 — Present</div><div style="font-size:13.5px; color:#46555f; margin-top:3px; line-height:1.55;">Led the build of a delightful product surface used by millions.</div></div>
+            <div><div style="font-weight:800; color:#1d2b36; font-size:15px;">Frontend Engineer · Studio</div><div style="font-size:12.5px; color:#8696a3; font-weight:700;">2020 — 2023</div><div style="font-size:13.5px; color:#46555f; margin-top:3px; line-height:1.55;">Shipped award-winning interactive experiences and prototypes.</div></div>
+          </div>
+          <div style="font-size:13px; font-weight:800; color:#fa5252; letter-spacing:1px; text-transform:uppercase; margin:22px 0 8px;">Education</div>
+          <div style="font-weight:800; color:#1d2b36; font-size:15px;">B.S. Computer Science · University</div>
+          <div style="font-size:12.5px; color:#8696a3; font-weight:700;">2016 — 2020</div>
+          <div style="font-size:13px; font-weight:800; color:#fa5252; letter-spacing:1px; text-transform:uppercase; margin:22px 0 10px;">Skills</div>
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            <span style="font-size:12.5px; font-weight:700; color:#3a2a12; background:#ffe066; border-bottom:3px solid #e8a700; border-radius:9px; padding:6px 12px;">TypeScript</span>
+            <span style="font-size:12.5px; font-weight:700; color:#fff; background:#4dabf7; border-bottom:3px solid #1c7ed6; border-radius:9px; padding:6px 12px;">React</span>
+            <span style="font-size:12.5px; font-weight:700; color:#fff; background:#37b24d; border-bottom:3px solid #2b8a3e; border-radius:9px; padding:6px 12px;">Three.js</span>
+            <span style="font-size:12.5px; font-weight:700; color:#fff; background:#f06595; border-bottom:3px solid #c2255c; border-radius:9px; padding:6px 12px;">Node</span>
+            <span style="font-size:12.5px; font-weight:700; color:#fff; background:#ff922b; border-bottom:3px solid #e8590c; border-radius:9px; padding:6px 12px;">WebGL</span>
+          </div>
+        </div>
+        <button onClick="{{ onClose }}" style="position:absolute; top:14px; right:16px; width:34px; height:34px; border-radius:50%; border:none; background:rgba(255,255,255,.3); color:#fff; font-size:18px; cursor:pointer; line-height:1;">✕</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- MARINA / Socials -->
+  <sc-if value="{{ isSocials }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:20px; z-index:20;">
+      <div onClick="{{ onClose }}" style="position:absolute; inset:0; background:rgba(8,30,55,.46); backdrop-filter:blur(2px);"></div>
+      <div style="position:relative; width:100%; max-width:420px; background:#fff; border-radius:24px; box-shadow:0 24px 60px rgba(8,30,55,.4); animation:bwpop .22s ease-out; overflow:hidden;">
+        <div style="background:#fa5252; padding:20px 26px 16px; display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; gap:7px;"><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span></div>
+          <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:13px; color:#fff; letter-spacing:1.5px; text-transform:uppercase;">Contact</div>
+        </div>
+        <div style="padding:22px 24px 26px; display:flex; flex-direction:column; gap:11px;">
+          <a href="https://github.com" target="_blank" style="text-decoration:none; display:flex; align-items:center; justify-content:space-between; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; color:#fff; background:#24292e; border-bottom:4px solid #0d1117; border-radius:14px; padding:13px 18px;">GitHub <span style="opacity:.7;">↗</span></a>
+          <a href="https://linkedin.com" target="_blank" style="text-decoration:none; display:flex; align-items:center; justify-content:space-between; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; color:#fff; background:#0a66c2; border-bottom:4px solid #074a8c; border-radius:14px; padding:13px 18px;">LinkedIn <span style="opacity:.7;">↗</span></a>
+          <a href="mailto:you@example.com" style="text-decoration:none; display:flex; align-items:center; justify-content:space-between; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; color:#3a2a12; background:#ffd43b; border-bottom:4px solid #e8a700; border-radius:14px; padding:13px 18px;">Email <span style="opacity:.6;">↗</span></a>
+        </div>
+        <button onClick="{{ onClose }}" style="position:absolute; top:14px; right:16px; width:34px; height:34px; border-radius:50%; border:none; background:rgba(255,255,255,.3); color:#fff; font-size:18px; cursor:pointer; line-height:1;">✕</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- PROJECT: Neon City -->
+  <sc-if value="{{ isNeon }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:20px; z-index:20;">
+      <div onClick="{{ onClose }}" style="position:absolute; inset:0; background:rgba(8,30,55,.46); backdrop-filter:blur(2px);"></div>
+      <div class="bw-scroll" style="position:relative; width:100%; max-width:460px; max-height:86vh; overflow:auto; background:#fff; border-radius:24px; box-shadow:0 24px 60px rgba(8,30,55,.4); animation:bwpop .22s ease-out;">
+        <div style="background:#f06595; padding:20px 26px 16px; display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; gap:7px;"><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span></div>
+          <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:13px; color:#fff; letter-spacing:1.5px; text-transform:uppercase;">Projects</div>
+        </div>
+        <div style="padding:22px 26px 28px;">
+          <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:24px; color:#1d2b36;">Neon Dashboard</div>
+          <p style="font-size:14px; line-height:1.6; color:#46555f; margin:8px 0 16px;">A flashy real-time analytics frontend with buttery animations and a bold neon look. The flagship of my visual work.</p>
+          <div style="height:160px; border-radius:14px; background:repeating-linear-gradient(45deg,#eef2f6,#eef2f6 11px,#e3e9ef 11px,#e3e9ef 22px); display:flex; align-items:center; justify-content:center; color:#92a2b0; font-family:monospace; font-size:12px;">drop project screenshot here</div>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:16px;">
+            <span style="font-size:12px; font-weight:700; color:#fff; background:#f06595; border-bottom:3px solid #c2255c; border-radius:9px; padding:5px 11px;">React</span>
+            <span style="font-size:12px; font-weight:700; color:#fff; background:#4dabf7; border-bottom:3px solid #1c7ed6; border-radius:9px; padding:5px 11px;">D3</span>
+            <span style="font-size:12px; font-weight:700; color:#3a2a12; background:#ffe066; border-bottom:3px solid #e8a700; border-radius:9px; padding:5px 11px;">WebSockets</span>
+          </div>
+          <a href="https://github.com" target="_blank" style="display:inline-block; margin-top:18px; text-decoration:none; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; color:#fff; background:#f06595; border-bottom:4px solid #c2255c; border-radius:13px; padding:11px 20px;">View Repo ↗</a>
+        </div>
+        <button onClick="{{ onClose }}" style="position:absolute; top:14px; right:16px; width:34px; height:34px; border-radius:50%; border:none; background:rgba(255,255,255,.3); color:#fff; font-size:18px; cursor:pointer; line-height:1;">✕</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- PROJECT: Library -->
+  <sc-if value="{{ isLibrary }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:20px; z-index:20;">
+      <div onClick="{{ onClose }}" style="position:absolute; inset:0; background:rgba(8,30,55,.46); backdrop-filter:blur(2px);"></div>
+      <div class="bw-scroll" style="position:relative; width:100%; max-width:460px; max-height:86vh; overflow:auto; background:#fff; border-radius:24px; box-shadow:0 24px 60px rgba(8,30,55,.4); animation:bwpop .22s ease-out;">
+        <div style="background:#4dabf7; padding:20px 26px 16px; display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; gap:7px;"><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span><span style="width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.55)"></span></div>
+          <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:13px; color:#fff; letter-spacing:1.5px; text-transform:uppercase;">Library Light · Project</div>
+        </div>
+        <div style="padding:22px 26px 28px;">
+          <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:24px; color:#1d2b36;">Docs &amp; Field Notes</div>
+          <p style="font-size:14px; line-height:1.6; color:#46555f; margin:8px 0 16px;">A writing &amp; documentation project — an open knowledge base with a search-first reading experience. Words as a product.</p>
+          <div style="height:160px; border-radius:14px; background:repeating-linear-gradient(45deg,#eef2f6,#eef2f6 11px,#e3e9ef 11px,#e3e9ef 22px); display:flex; align-items:center; justify-content:center; color:#92a2b0; font-family:monospace; font-size:12px;">drop project screenshot here</div>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:16px;">
+            <span style="font-size:12px; font-weight:700; color:#fff; background:#4dabf7; border-bottom:3px solid #1c7ed6; border-radius:9px; padding:5px 11px;">Next.js</span>
+            <span style="font-size:12px; font-weight:700; color:#fff; background:#37b24d; border-bottom:3px solid #2b8a3e; border-radius:9px; padding:5px 11px;">MDX</span>
+            <span style="font-size:12px; font-weight:700; color:#3a2a12; background:#ffe066; border-bottom:3px solid #e8a700; border-radius:9px; padding:5px 11px;">Algolia</span>
+          </div>
+          <a href="https://github.com" target="_blank" style="display:inline-block; margin-top:18px; text-decoration:none; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; color:#fff; background:#4dabf7; border-bottom:4px solid #1c7ed6; border-radius:13px; padding:11px 20px;">View Repo ↗</a>
+        </div>
+        <button onClick="{{ onClose }}" style="position:absolute; top:14px; right:16px; width:34px; height:34px; border-radius:50%; border:none; background:rgba(255,255,255,.3); color:#fff; font-size:18px; cursor:pointer; line-height:1;">✕</button>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;},&quot;seaColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#1c7ed6&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;boatColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#e03131&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;skyColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#9fd3ff&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { activePanel: null, dockTarget: null, isMobile: false, soundOn: false, visited: {}, toast: null };
+
+  renderVals() {
+    const p = this.state.activePanel;
+    return {
+      isMobile: this.state.isMobile,
+      showPrompt: !!this.state.dockTarget && !p,
+      dockName: this.state.dockTarget ? this.state.dockTarget.title : '',
+      isHome: p === 'home', isSocials: p === 'socials', isHouse: p === 'house',
+      isNeon: p === 'neon', isLibrary: p === 'library',
+      mountRef: (el) => { if (el) this.mountEl = el; },
+      miniRef: (el) => { if (el) this.miniCanvas = el; },
+      joyBaseRef: (el) => { if (el && !el._wired) { el._wired = true; this.wireJoystick(el); } },
+      joyKnobRef: (el) => { if (el) this.joyKnob = el; },
+      onDock: () => { this.playClick(); this.tryDock(); },
+      onClose: () => { this.playClick(); this.closePanel(); },
+      onLost: () => { this.playClick(); this.goHome(); },
+      onToggleSound: () => this.toggleSound(),
+      soundIcon: this.state.soundOn ? '\u266A' : '\u00D7',
+      soundLabel: this.state.soundOn ? 'Sound on' : 'Sound off',
+      discovered: 'Discovered ' + Object.keys(this.state.visited).length + ' / ' + (this._total || 5),
+      allFound: Object.keys(this.state.visited).length >= (this._total || 5),
+      showToast: !!this.state.toast,
+      toastTitle: this.state.toast ? this.state.toast.title : '',
+      toastKicker: this.state.toast && this.state.toast.all ? 'All Islands Discovered' : 'Island Discovered',
+    };
+  }
+
+  componentDidMount() {
+    this.reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const touch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
+    this.keys = {};
+    this.joy = { x: 0, y: 0 };
+    this.boatAngle = 0;
+    this.speed = 0;
+    this.autopilot = false;
+    this.foams = [];
+    this._foamT = 0;
+    this._inited = false;
+    this._promptId = '_none_';
+    // load saved achievements
+    try { const saved = JSON.parse(localStorage.getItem('brickVoyage.visited.v1') || '[]'); if (Array.isArray(saved)) { const v = {}; saved.forEach(id => v[id] = true); this.setState({ visited: v }); } } catch (e) {}
+    if (touch) this.setState({ isMobile: true });
+
+    this.onKeyDown = (e) => {
+      const k = e.key.toLowerCase();
+      this.keys[k] = true;
+      if (k === 'e') { this.playClick(); this.tryDock(); }
+      if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
+    };
+    this.onKeyUp = (e) => { this.keys[e.key.toLowerCase()] = false; };
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
+
+    this._tryInit = () => {
+      if (this._inited) return;
+      if (window.THREE && this.mountEl) { this.initScene(); }
+      else { this._t = setTimeout(this._tryInit, 60); }
+    };
+    this._tryInit();
+  }
+
+  componentWillUnmount() {
+    if (this._t) clearTimeout(this._t);
+    if (this.raf) cancelAnimationFrame(this.raf);
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('resize', this.onResize);
+    if (this.renderer) { try { this.renderer.dispose(); this.renderer.forceContextLoss(); } catch(e){} }
+  }
+
+  componentDidUpdate() {
+    if (!this._inited) return;
+    if (this.props.skyColor && this._sky !== this.props.skyColor) {
+      this._sky = this.props.skyColor;
+      this.scene.background.set(this.props.skyColor);
+      if (this.scene.fog) this.scene.fog.color.set(this.props.skyColor);
+      if (this.skyMat) this.skyMat.uniforms.uBot.value.set(this.props.skyColor);
+    }
+    if (this.props.seaColor && this._sea !== this.props.seaColor) { this._sea = this.props.seaColor; this.waterMat.color.set(this.props.seaColor); if (this.waterUniforms) this.waterUniforms.uSea.value.set(this.props.seaColor); }
+    if (this.props.boatColor && this._hull !== this.props.boatColor) { this._hull = this.props.boatColor; this.hullMat.color.set(this.props.boatColor); }
+  }
+
+  // ---------- AUDIO (synthesized, no external files) ----------
+  initAudio() {
+    if (this.audioCtx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    this.audioCtx = ctx;
+    const master = ctx.createGain(); master.gain.value = 0; master.connect(ctx.destination); this.masterGain = master;
+    // ambient ocean: looping low-passed noise with a slow swell
+    const dur = 4;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < data.length; i++) { const w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; data[i] = last * 3.2; }
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 520;
+    const ocean = ctx.createGain(); ocean.gain.value = 0.16;
+    src.connect(lp); lp.connect(ocean); ocean.connect(master); src.start();
+    const lfo = ctx.createOscillator(); lfo.frequency.value = this.reduced ? 0.06 : 0.13;
+    const lfoG = ctx.createGain(); lfoG.gain.value = 0.08; lfo.connect(lfoG); lfoG.connect(ocean.gain); lfo.start();
+  }
+  toggleSound() {
+    this.initAudio();
+    if (!this.audioCtx) return;
+    if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+    const on = !this.state.soundOn;
+    this.setState({ soundOn: on });
+    this.masterGain.gain.setTargetAtTime(on ? 0.9 : 0, this.audioCtx.currentTime, 0.25);
+  }
+  playChime() {
+    if (!this.state.soundOn || !this.audioCtx) return;
+    const ctx = this.audioCtx, t = ctx.currentTime;
+    [523.25, 659.25, 783.99].forEach((f, i) => {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+      const g = ctx.createGain(); const s = t + i * 0.09;
+      g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(0.28, s + 0.02); g.gain.exponentialRampToValueAtTime(0.001, s + 0.55);
+      o.connect(g); g.connect(this.masterGain); o.start(s); o.stop(s + 0.6);
+    });
+  }
+  playClick() {
+    if (!this.state.soundOn || !this.audioCtx) return;
+    const ctx = this.audioCtx, t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(880, t); o.frequency.exponentialRampToValueAtTime(440, t + 0.06);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.16, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    o.connect(g); g.connect(this.masterGain); o.start(t); o.stop(t + 0.1);
+  }
+
+  wireJoystick(el) {
+    const reset = () => { this.joy.x = 0; this.joy.y = 0; if (this.joyKnob) this.joyKnob.style.transform = 'translate(0,0)'; };
+    el.addEventListener('pointerdown', (e) => { el.setPointerCapture(e.pointerId); move(e); });
+    el.addEventListener('pointermove', (e) => { if (e.buttons || e.pressure) move(e); });
+    el.addEventListener('pointerup', reset);
+    el.addEventListener('pointercancel', reset);
+    el.addEventListener('lostpointercapture', reset);
+    const move = (e) => {
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      let dx = e.clientX - cx, dy = e.clientY - cy;
+      const max = r.width / 2 - 8;
+      const len = Math.hypot(dx, dy);
+      if (len > max) { dx = dx / len * max; dy = dy / len * max; }
+      this.joy.x = dx / max; this.joy.y = dy / max;
+      if (this.joyKnob) this.joyKnob.style.transform = `translate(${dx}px,${dy}px)`;
+    };
+  }
+
+  initScene() {
+    const THREE = window.THREE;
+    this._inited = true;
+    const sky = this.props.skyColor || '#9fd3ff';
+    const seaCol = this.props.seaColor || '#1c7ed6';
+    const hullCol = this.props.boatColor || '#e03131';
+    this._sky = sky; this._sea = seaCol; this._hull = hullCol;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(sky);
+    scene.fog = new THREE.Fog(new THREE.Color('#5a7a9e'), 200, 540);
+    this.scene = scene;
+
+    const camera = new THREE.PerspectiveCamera(30, this.mountEl.clientWidth / this.mountEl.clientHeight, 0.1, 4000);
+    camera.position.set(0, 54, 150);
+    this.camera = camera;
+
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false });
+    } catch (e) {
+      this._inited = false;
+      this.mountEl.innerHTML = '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:Nunito,sans-serif;font-weight:700;color:#46555f;text-align:center;padding:24px;">Couldn\'t start the 3D view.<br>Try reloading the tab.</div>';
+      return;
+    }
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setSize(this.mountEl.clientWidth, this.mountEl.clientHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.82;
+    this.mountEl.appendChild(renderer.domElement);
+    this.renderer = renderer;
+    renderer.domElement.addEventListener('webglcontextlost', (ev) => { ev.preventDefault(); if (this.raf) cancelAnimationFrame(this.raf); });
+    renderer.domElement.addEventListener('webglcontextrestored', () => { if (this._inited) this.animate(); });
+    // keyboard focus: an embedded iframe only receives keydown once it is focused
+    this.mountEl.setAttribute('tabindex', '0');
+    this.mountEl.style.outline = 'none';
+    const focusStage = () => { try { window.focus(); this.mountEl.focus({ preventScroll: true }); } catch (e) {} };
+    this.mountEl.addEventListener('pointerdown', focusStage);
+    renderer.domElement.addEventListener('pointerdown', focusStage);
+    focusStage();
+
+    // Lighting (moody late-afternoon)
+    scene.add(new THREE.HemisphereLight(0x8aa6c8, 0x4a5538, 0.42));
+    scene.add(new THREE.AmbientLight(0x6678a0, 0.12));
+    const sun = new THREE.DirectionalLight(0xffe6c2, 0.72);
+    sun.position.set(60, 110, 40);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const sc = sun.shadow.camera; sc.left = -220; sc.right = 220; sc.top = 220; sc.bottom = -220; sc.near = 1; sc.far = 420;
+    sun.shadow.bias = -0.0004;
+    scene.add(sun);
+
+    // material/mesh helpers
+    const M = (color, opts) => new THREE.MeshStandardMaterial(Object.assign({ color: new THREE.Color(color), flatShading: true, roughness: 0.82, metalness: 0 }, opts || {}));
+    const box = (w, h, d, color, opts) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M(color, opts)); m.castShadow = true; m.receiveShadow = true; return m; };
+    const cyl = (rt, rb, h, color, seg, opts) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg || 16), M(color, opts)); m.castShadow = true; m.receiveShadow = true; return m; };
+    const cone = (r, h, color, seg, opts) => { const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, seg || 16), M(color, opts)); m.castShadow = true; m.receiveShadow = true; return m; };
+    const sph = (r, color, opts) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), M(color, opts)); m.castShadow = true; return m; };
+    const stud = (color) => { const m = cyl(0.42, 0.42, 0.28, color, 12); return m; };
+    const addStuds = (parent, topY, color, coords) => { coords.forEach(c => { const s = stud(color); s.position.set(c[0], topY + 0.14, c[1]); parent.add(s); }); };
+    const tree = (x, z, s, leaf) => {
+      const tg = new THREE.Group();
+      const bark = '#7a4a24', bark2 = '#8a5a2b';
+      // chunky multi-block trunk
+      const t1 = box(0.7 * s, 1.1 * s, 0.7 * s, bark); t1.position.y = 0.55 * s; tg.add(t1);
+      const t2 = box(0.6 * s, 1.1 * s, 0.6 * s, bark2); t2.position.set(0.06 * s, 1.5 * s, -0.04 * s); tg.add(t2);
+      const root1 = box(0.4 * s, 0.4 * s, 0.4 * s, bark); root1.position.set(0.42 * s, 0.2 * s, 0.1 * s); tg.add(root1);
+      const root2 = box(0.4 * s, 0.4 * s, 0.4 * s, bark); root2.position.set(-0.4 * s, 0.2 * s, -0.18 * s); tg.add(root2);
+      const branch = box(0.34 * s, 0.34 * s, 0.9 * s, bark2); branch.position.set(0.5 * s, 1.7 * s, 0.3 * s); branch.rotation.x = 0.4; tg.add(branch);
+      // voxel canopy: a stepped cluster of leaf cubes
+      const l1 = leaf || '#2f9e44', l2 = leaf ? leaf : '#43b35a', l3 = leaf ? leaf : '#268a3c';
+      const blob = (bx, by, bz, w, hh, dd, c) => { const m = box(w * s, hh * s, dd * s, c); m.position.set(bx * s, by * s, bz * s); tg.add(m); };
+      blob(0, 2.7, 0, 2.6, 1.0, 2.6, l1);
+      blob(-1.1, 2.9, 0.5, 1.2, 0.9, 1.2, l3);
+      blob(1.1, 2.8, -0.6, 1.3, 1.0, 1.3, l3);
+      blob(0.5, 3.0, 1.1, 1.1, 0.9, 1.1, l2);
+      blob(0, 3.7, 0, 2.0, 1.0, 2.0, l2);
+      blob(-0.7, 4.0, -0.5, 1.1, 0.9, 1.1, l1);
+      blob(0.7, 4.1, 0.4, 1.0, 0.9, 1.0, l1);
+      blob(0, 4.7, 0, 1.2, 1.0, 1.2, l2);
+      blob(0, 5.4, 0.1, 0.6, 0.6, 0.6, l3);
+      tg.position.set(x, 2.8, z); tg.rotation.y = ((x * 13.1 + z * 7.7) % 6.28); return tg;
+    };
+    const rock = (x, z, s, col) => {
+      const rg = new THREE.Group();
+      const c1 = col || '#7d8488', c2 = col ? col : '#909a9e', c3 = col ? col : '#6a7074';
+      const blk = (bx, by, bz, w, hh, dd, c) => { const m = box(w, hh, dd, c); m.position.set(bx, by, bz); m.rotation.y = (bx + bz) * 0.3; rg.add(m); };
+      blk(0, 0.6 * s, 0, 1.5 * s, 1.2 * s, 1.5 * s, c1);
+      blk(0.85 * s, 0.45 * s, 0.2 * s, 1.0 * s, 0.9 * s, 1.1 * s, c2);
+      blk(-0.7 * s, 0.4 * s, -0.4 * s, 0.9 * s, 0.8 * s, 0.9 * s, c3);
+      blk(0.2 * s, 1.25 * s, -0.3 * s, 0.9 * s, 0.8 * s, 0.9 * s, c2);
+      blk(-0.3 * s, 1.0 * s, 0.6 * s, 0.7 * s, 0.6 * s, 0.7 * s, c1);
+      blk(0.5 * s, 1.6 * s, 0.25 * s, 0.5 * s, 0.5 * s, 0.5 * s, c3);
+      rg.position.set(x, 2.6, z); return rg;
+    };
+    const flower = (x, z, col) => {
+      const fg = new THREE.Group();
+      const stem = box(0.16, 1.0, 0.16, '#2f9e44'); stem.position.y = 0.5; fg.add(stem);
+      const leafA = box(0.4, 0.16, 0.16, '#37b24d'); leafA.position.set(0.26, 0.5, 0); fg.add(leafA);
+      const leafB = box(0.16, 0.16, 0.4, '#268a3c'); leafB.position.set(0, 0.72, 0.26); fg.add(leafB);
+      const c = col || '#ff6b9d';
+      const core = box(0.34, 0.34, 0.34, '#ffd43b'); core.position.y = 1.2; fg.add(core);
+      // 4 block petals around the core (boxes only)
+      const petal = (dx, dz) => { const p = box(0.3, 0.3, 0.3, c); p.position.set(dx, 1.2, dz); fg.add(p); };
+      petal(0.34, 0); petal(-0.34, 0); petal(0, 0.34); petal(0, -0.34);
+      const top = box(0.22, 0.22, 0.22, c); top.position.y = 1.5; fg.add(top);
+      fg.position.set(x, 2.8, z); fg.rotation.y = (x * 5.3 + z) % 6.28; return fg;
+    };
+    const lamp = (x, z) => { const lg = new THREE.Group(); const pole = box(0.3, 4.0, 0.3, '#37424c'); pole.position.y = 2.0; lg.add(pole); const arm = box(0.3, 0.3, 1.0, '#37424c'); arm.position.set(0, 4.0, 0.4); lg.add(arm); const head = box(0.95, 0.95, 0.95, '#ffe066', { emissive: new THREE.Color('#ffd43b'), emissiveIntensity: 1.0 }); head.position.set(0, 3.9, 0.8); lg.add(head); lg.position.set(x, 2.8, z); return lg; };
+    const barrel = (x, z, col) => { const g2 = new THREE.Group(); const b = cyl(0.6, 0.6, 1.4, col || '#8a5a2b', 12); b.position.set(x, 3.6, z); const band = cyl(0.64, 0.64, 0.2, '#5c3a1e', 12); band.position.set(x, 3.9, z); g2.add(b); g2.add(band); return g2; };
+    const mulberry32 = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let tt = Math.imul(a ^ a >>> 15, 1 | a); tt = tt + Math.imul(tt ^ tt >>> 7, 61 | tt) ^ tt; return ((tt ^ tt >>> 14) >>> 0) / 4294967296; };
+    const makeLand = (g, radius, grassCol, beachCol, seed) => {
+      const rnd = mulberry32(seed);
+      const beach = beachCol || '#e7c98a';
+      const grass = grassCol || '#51cf66';
+      const lumps = [];
+      const n = 8;
+      for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2 + rnd() * 0.5; const rr = radius * (0.42 + rnd() * 0.5); lumps.push([Math.cos(a) * rr, Math.sin(a) * rr, radius * (0.55 + rnd() * 0.6), radius * (0.55 + rnd() * 0.6)]); }
+      lumps.push([0, 0, radius * 1.25, radius * 1.25]);
+      lumps.forEach(c => { const d2 = box(c[2] * 1.06, 3.2, c[3] * 1.06, '#a07a42'); d2.position.set(c[0], -4.6, c[1]); g.add(d2); });
+      lumps.forEach(c => { const d = box(c[2], 7, c[3], beach); d.position.set(c[0], -1.4, c[1]); g.add(d); });
+      lumps.forEach(c => { const gr = box(c[2] * 0.85, 1.9, c[3] * 0.85, grass); gr.position.set(c[0], 2.0, c[1]); g.add(gr); });
+      for (let i = 0; i < 4; i++) { const mx = (rnd() - 0.5) * radius * 1.2, mz = (rnd() - 0.5) * radius * 1.2; const patch = box(radius * (0.3 + rnd() * 0.3), 0.3, radius * (0.3 + rnd() * 0.3), i % 2 ? '#43b35a' : '#5fd16f'); patch.position.set(mx, 3.0, mz); g.add(patch); }
+      for (let i = 0; i < 2; i++) { const mx = (rnd() - 0.5) * radius, mz = (rnd() - 0.5) * radius; const mound = box(radius * 0.4, 1.6, radius * 0.4, grass); mound.position.set(mx, 3.4, mz); g.add(mound); }
+      for (let i = 0; i < 3; i++) { const a = rnd() * 6.28; const rr = radius * (0.98 + rnd() * 0.3); const rk = box(1.4 + rnd() * 1.3, 1.3, 1.4 + rnd() * 1.3, i % 2 ? '#7d8488' : '#929a9e'); rk.position.set(Math.cos(a) * rr, 1.0, Math.sin(a) * rr); rk.rotation.y = rnd(); g.add(rk); }
+      return lumps;
+    };
+
+    // ---------- SKY DOME (gradient shader) ----------
+    const skyMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite: false, fog: false,
+      uniforms: { uTop: { value: new THREE.Color('#1f4f80') }, uBot: { value: new THREE.Color('#7fa8c8') } },
+      vertexShader: 'varying float vY; void main(){ vY = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: 'varying float vY; uniform vec3 uTop; uniform vec3 uBot; void main(){ float t = clamp(vY*1.15 + 0.25, 0.0, 1.0); gl_FragColor = vec4(mix(uBot, uTop, t), 1.0); }'
+    });
+    scene.add(new THREE.Mesh(new THREE.SphereGeometry(1700, 24, 16), skyMat)); this.skyMat = skyMat;
+
+    // ---------- WATER (custom GPU wave + foam shader) ----------
+    const waterGeo = new THREE.PlaneGeometry(2600, 2600, 200, 200);
+    waterGeo.rotateX(-Math.PI / 2);
+    const waterMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(seaCol), fog: true });
+    const waterUniforms = { uTime: { value: 0 }, uSea: { value: new THREE.Color(seaCol) } };
+    this.waterUniforms = waterUniforms;
+    const waveAmp = this.reduced ? 0.18 : 0.6;
+    waterMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = waterUniforms.uTime;
+      shader.uniforms.uSea = waterUniforms.uSea;
+      shader.vertexShader = ('uniform float uTime;\nvarying vec2 vXZ;\nvarying float vH;\n' +
+        'const float A1=' + waveAmp.toFixed(2) + ', A2=' + (waveAmp * 0.7).toFixed(2) + ', k1=0.085, k2=0.11, s1=1.0, s2=0.8;\n' +
+        shader.vertexShader)
+        .replace('#include <begin_vertex>',
+          'vec3 transformed = vec3(position);\n float h = A1*sin(position.x*k1 + uTime*s1) + A2*cos(position.z*k2 + uTime*s2);\n transformed.y += h;\n vXZ = position.xz;\n vH = h;');
+      shader.fragmentShader = ('uniform float uTime;\nuniform vec3 uSea;\nvarying vec2 vXZ;\nvarying float vH;\n' +
+        'float waveField(vec2 p){ float t=uTime; float w = sin(p.x*0.08 + p.y*0.05 + t*0.7); w += 0.6*sin(p.x*0.15 - p.y*0.09 - t*0.9); w += 0.4*sin(p.y*0.19 + t*0.5); w += 0.3*sin((p.x+p.y)*0.11 - t*1.2); return w/2.3; }\n' +
+        shader.fragmentShader)
+        .replace('#include <color_fragment>',
+          '#include <color_fragment>\n float wv = waveField(vXZ)*0.6 + vH*0.5;\n vec3 darker = uSea*0.74;\n vec3 lighter = mix(uSea, vec3(1.0), 0.22);\n vec3 col = uSea;\n col = mix(col, darker, clamp(-wv, 0.0, 1.0));\n col = mix(col, lighter, clamp(wv, 0.0, 1.0)*0.9);\n diffuseColor.rgb = col;\n ');
+    };
+    const water = new THREE.Mesh(waterGeo, waterMat);
+    scene.add(water);
+    this.water = water; this.waterMat = waterMat;
+
+    // ---------- BOAT (blocky Crossy-Road style tug) ----------
+    const boat = new THREE.Group();
+    const model = new THREE.Group();
+    const hullMat = M(hullCol, { roughness: 0.6 });
+    this.hullMat = hullMat;
+    const keel = box(2.9, 1.0, 5.0, '#a51111'); keel.position.y = 0.5; model.add(keel);
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.2, 5.4), hullMat); hull.castShadow = true; hull.receiveShadow = true; hull.position.y = 1.45; model.add(hull);
+    const bow = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.2, 1.3), hullMat); bow.castShadow = true; bow.position.set(0, 1.9, -2.05); model.add(bow);
+    const trim = box(3.6, 0.4, 5.6, '#ffffff'); trim.position.y = 2.15; model.add(trim);
+    const deck = box(2.9, 0.3, 4.8, '#f4d9a6'); deck.position.set(0, 2.35, 0.2); model.add(deck);
+    const cabin = box(2.0, 1.4, 2.0, '#ffffff'); cabin.position.set(0, 3.2, 1.1); model.add(cabin);
+    const cwin = box(2.06, 0.6, 1.2, '#3a8fd6'); cwin.position.set(0, 3.4, 1.1); model.add(cwin);
+    const croof = box(2.3, 0.35, 2.3, '#ffd43b'); croof.position.set(0, 4.0, 1.1); model.add(croof);
+    const funnel = box(0.8, 1.4, 0.8, hullCol); funnel.position.set(0, 4.6, 1.7); model.add(funnel);
+    const fband = box(0.9, 0.3, 0.9, '#ffffff'); fband.position.set(0, 5.0, 1.7); model.add(fband);
+    const mast = box(0.25, 4.0, 0.25, '#8a5a2b'); mast.position.set(0, 4.0, -0.9); model.add(mast);
+    const boom = box(0.2, 0.2, 2.0, '#8a5a2b'); boom.position.set(0, 3.0, -0.9); model.add(boom);
+    const sail = box(0.22, 2.4, 1.9, '#ffffff', { roughness: 0.9 }); sail.position.set(0, 4.0, -0.9); model.add(sail);
+    const jib = box(0.2, 1.5, 1.1, '#ffe3c2', { roughness: 0.9 }); jib.position.set(0, 3.4, -1.7); model.add(jib);
+    const flag = box(0.1, 0.7, 0.9, hullCol); flag.position.set(0, 5.7, -0.45); model.add(flag);
+    // --- fine detail ---
+    [-1.78, 1.78].forEach(sx => { [-0.5, 0.8].forEach(pz => { const ph = box(0.12, 0.5, 0.5, '#bfe9ff', { emissive: new THREE.Color('#bfe9ff'), emissiveIntensity: 0.25 }); ph.position.set(sx, 1.5, pz); model.add(ph); }); });
+    const lifeRing = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.16, 8, 16), M('#ffffff')); lifeRing.position.set(0, 3.05, 2.18); lifeRing.castShadow = true; model.add(lifeRing);
+    const lifeRing2 = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.1, 8, 8), M('#fa5252')); lifeRing2.position.set(0, 3.05, 2.16); model.add(lifeRing2);
+    for (let i = 0; i < 5; i++) { const pz = -1.7 + i * 0.85; [-1.5, 1.5].forEach(sx => { const pst = box(0.12, 0.55, 0.12, '#ffffff'); pst.position.set(sx, 2.55, pz); model.add(pst); }); }
+    [-1.5, 1.5].forEach(sx => { const rail = box(0.09, 0.09, 4.0, '#ffffff'); rail.position.set(sx, 2.85, -0.3); model.add(rail); });
+    const coil = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.13, 6, 14), M('#caa46a')); coil.rotation.x = Math.PI / 2; coil.position.set(-0.95, 2.55, -1.7); model.add(coil);
+    const anchor = box(0.45, 0.7, 0.12, '#495057'); anchor.position.set(1.55, 1.75, -1.7); model.add(anchor);
+    const anchorBar = box(0.95, 0.14, 0.12, '#495057'); anchorBar.position.set(1.55, 2.0, -1.7); model.add(anchorBar);
+    boat.add(model);
+    boat.position.set(0, 0, 36);
+    scene.add(boat);
+    this.boat = boat; this.boatModel = model;
+
+    // ---------- foam template ----------
+    this.foamGeo = new THREE.CircleGeometry(1, 14); this.foamGeo.rotateX(-Math.PI / 2);
+
+    // ---------- ISLANDS ----------
+    const islands = [];
+    const makeLabel = (text, accent) => {
+      const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128;
+      const cx = cv.getContext('2d');
+      cx.font = '700 60px "Baloo 2", Nunito, sans-serif';
+      const tw = cx.measureText(text).width; const pad = 34; const w = Math.min(cv.width - 8, tw + pad * 2); const h2 = 84; const x0 = (cv.width - w) / 2; const y0 = (cv.height - h2) / 2; const r = 42;
+      cx.fillStyle = 'rgba(13,40,66,0.0)';
+      cx.beginPath(); cx.moveTo(x0 + r, y0); cx.arcTo(x0 + w, y0, x0 + w, y0 + h2, r); cx.arcTo(x0 + w, y0 + h2, x0, y0 + h2, r); cx.arcTo(x0, y0 + h2, x0, y0, r); cx.arcTo(x0, y0, x0 + w, y0, r); cx.closePath();
+      cx.fillStyle = 'rgba(255,255,255,0.94)'; cx.fill();
+      cx.lineWidth = 7; cx.strokeStyle = accent; cx.stroke();
+      cx.fillStyle = '#1d2b36'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(text, cv.width / 2, cv.height / 2 + 3);
+      const tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter; tex.anisotropy = 4;
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+      const spr = new THREE.Sprite(mat); spr.scale.set(22, 5.5, 1); spr.renderOrder = 999;
+      return spr;
+    };
+    const mkIsland = (id, title, panel, x, z, radius, mini, builder) => {
+      const g = new THREE.Group(); g.position.set(x, 0, z);
+      const seed = Math.abs(Math.floor(x * 73.7 + z * 19.3)) + 7;
+      const islandLumps = makeLand(g, radius, builder.grass, builder.beach, seed);
+      builder.build(g, { box, cyl, cone, sph, stud, addStuds, tree, rock, flower, lamp, barrel, M, radius });
+      scene.add(g);
+      // dock point toward spawn
+      const cv = new THREE.Vector3(0, 0, 36).sub(new THREE.Vector3(x, 0, z));
+      cv.y = 0; cv.normalize();
+      const dock = new THREE.Vector3(x + cv.x * (radius + 6), 0, z + cv.z * (radius + 6));
+      // realistic wooden pier / harbor
+      const dockGroup = new THREE.Group();
+      dockGroup.rotation.y = Math.atan2(cv.x, cv.z);
+      const L = 15, startZ = radius * 0.72;
+      const deckBoard = box(5.2, 0.45, L, '#7a4e28'); deckBoard.position.set(0, 1.75, startZ + L / 2); dockGroup.add(deckBoard);
+      for (let i = 0; i < 8; i++) { const slat = box(5.0, 0.14, 1.4, i % 2 ? '#9c6b3f' : '#85572f'); slat.position.set(0, 2.02, startZ + 1 + i * 1.85); dockGroup.add(slat); }
+      for (let i = 0; i < 4; i++) { const z2 = startZ + 1.6 + i * 4.2; [-2.4, 2.4].forEach(s => { const post = box(0.55, 4.6, 0.55, '#5c3a1e'); post.position.set(s, 0.0, z2); dockGroup.add(post); }); }
+      [-2.0, 2.0].forEach(s => { const bol = box(0.6, 1.7, 0.6, '#4a2f17'); bol.position.set(s, 2.6, startZ + L - 1.2); dockGroup.add(bol); const cap = box(0.82, 0.3, 0.82, '#3a2410'); cap.position.set(s, 3.5, startZ + L - 1.2); dockGroup.add(cap); });
+      const coilD = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.16, 6, 14), M('#caa46a')); coilD.rotation.x = Math.PI / 2; coilD.position.set(1.9, 2.05, startZ + 3); dockGroup.add(coilD);
+      g.add(dockGroup);
+      const labelY = builder.labelY || (radius + 12);
+      const label = makeLabel(title, mini); label.position.set(x, labelY, z); scene.add(label);
+      // collision: one circle per land lump (matches the irregular coast) + circles down the pier
+      const colliders = [];
+      if (islandLumps) islandLumps.forEach(c => { const r = Math.max(c[2], c[3]) * 0.5 * 0.9; colliders.push({ x: x + c[0], z: z + c[1], r }); });
+      for (let d = radius * 0.72 + 1; d <= radius + 3.5; d += 2.4) { colliders.push({ x: x + cv.x * d, z: z + cv.z * d, r: 2.2 }); }
+      islands.push({ id, title, panel, pos: new THREE.Vector3(x, 0, z), dock, mini, group: g, collR: radius * 1.7, colliders, label, labelY });
+    };
+
+    mkIsland('home', 'Home Harbor', 'home', 0, 12, 16, '#37b24d', { grass: '#51cf66', build: (g, h) => {
+      g.add(h.tree(-10, -8, 1.2, '#2f9e44')); g.add(h.tree(10, 8, 1.0)); g.add(h.tree(-3, -11, 1.1, '#37b24d')); g.add(h.tree(8, -7, 0.9, '#2f9e44')); g.add(h.tree(-9, 6, 0.95));
+      g.add(h.rock(5, -9, 2.2)); g.add(h.rock(-7, -3, 1.6, '#7a8086')); g.add(h.rock(9, 2, 1.4)); g.add(h.rock(-6, 9, 1.2, '#909296'));
+      g.add(h.flower(3, 9, '#ff6b9d')); g.add(h.flower(5, 8, '#ffd43b')); g.add(h.flower(-2, 10, '#ff8787')); g.add(h.flower(7, 6, '#9775fa')); g.add(h.flower(-5, 9, '#74c0fc')); g.add(h.flower(1, 11, '#ff8787')); g.add(h.flower(-8, 1, '#ffd43b')); g.add(h.flower(6, -3, '#ff6b9d'));
+    }});
+
+    mkIsland('socials', 'Contact', 'socials', -82, -28, 11, '#fa5252', { grass: '#69db7c', labelY: 24, build: (g, h) => {
+      const t1 = h.box(4.6, 10, 4.6, '#ffffff'); t1.position.y = 7.0; g.add(t1);
+      const sa = h.box(4.8, 1.6, 4.8, '#fa5252'); sa.position.y = 4.2; g.add(sa);
+      const sb = h.box(4.8, 1.6, 4.8, '#fa5252'); sb.position.y = 9.2; g.add(sb);
+      const gal = h.box(3.9, 1.4, 3.9, '#fa5252'); gal.position.y = 12.6; g.add(gal);
+      const lamp = h.box(3.2, 2.4, 3.2, '#fff3bf', { emissive: new THREE.Color('#ffe066'), emissiveIntensity: 0.75 }); lamp.position.y = 14.5; g.add(lamp);
+      const cap = h.box(3.8, 0.6, 3.8, '#c92a2a'); cap.position.y = 15.9; g.add(cap);
+      const roof = h.box(2.0, 1.8, 2.0, '#c92a2a'); roof.position.y = 17.0; g.add(roof);
+      const lampY = 14.5;
+      // sweeping beam: a hollow cone whose APEX sits at the lamp centre and sweeps outward
+      const beamGeo = new THREE.ConeGeometry(5, 34, 22, 1, true);
+      beamGeo.translate(0, -17, 0);   // apex -> origin, body extends down
+      beamGeo.rotateZ(Math.PI / 2);   // apex stays at origin, body points along +x
+      const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xfff3bf, transparent: true, opacity: 0.17, side: THREE.DoubleSide, depthWrite: false }));
+      const beamPivot = new THREE.Group(); beamPivot.position.set(0, lampY, 0); beamPivot.add(beam); g.add(beamPivot); this._beam = beamPivot;
+      const pl = new THREE.PointLight(0xfff3bf, 0.85, 90); pl.position.y = lampY; g.add(pl); this._beamLight = pl;
+      g.add(h.tree(7, 6, 0.9)); g.add(h.tree(-7, 5, 0.8, '#37b24d'));
+      const door = h.box(1.5, 2.6, 0.4, '#6d4c41'); door.position.set(0, 4.0, 2.4); g.add(door);
+      [6.2, 9.6, 12.6].forEach(wy => { const w = h.box(1.0, 1.0, 0.25, '#ffe066', { emissive: new THREE.Color('#ffd43b'), emissiveIntensity: 0.55 }); w.position.set(0, wy, 2.42); g.add(w); });
+      g.add(h.rock(6, -6, 1.7)); g.add(h.rock(-6, -5, 1.3, '#7a8086'));
+    }});
+
+    mkIsland('house', 'About Me', 'house', 78, -16, 14, '#82d96b', { grass: '#82d96b', build: (g, h) => {
+      const walls = h.box(7, 5, 6, '#ffe8c2'); walls.position.set(0, 5.4, 0); g.add(walls);
+      const corner = h.box(0.6, 5, 0.6, '#e8c79a'); [[-3.2,2.7],[3.2,2.7],[-3.2,-2.7],[3.2,-2.7]].forEach(c => { const cc = corner.clone(); cc.position.set(c[0], 5.4, c[1]); g.add(cc); });
+      const roofA = h.box(8.4, 1.0, 7.2, '#c44b3a'); roofA.position.set(0, 8.0, 0); g.add(roofA);
+      const roofB = h.box(6.4, 1.0, 7.2, '#d65f4d'); roofB.position.set(0, 8.9, 0); g.add(roofB);
+      const roofC = h.box(4.2, 1.0, 7.2, '#e0705f'); roofC.position.set(0, 9.7, 0); g.add(roofC);
+      const ridge = h.box(2.2, 1.0, 7.2, '#b13e2e'); ridge.position.set(0, 10.4, 0); g.add(ridge);
+      const chim = h.box(1.2, 3, 1.2, '#b85c4a'); chim.position.set(2.2, 10.6, -1.5); g.add(chim);
+      const door = h.box(1.7, 2.8, 0.4, '#7a4e28'); door.position.set(0, 4.3, 3.05); g.add(door);
+      const knob = h.box(0.22, 0.22, 0.22, '#ffd43b'); knob.position.set(0.55, 4.4, 3.22); g.add(knob);
+      [-2.3, 2.3].forEach(wx => { const fr = h.box(1.9, 1.9, 0.25, '#ffffff'); fr.position.set(wx, 5.7, 3.0); g.add(fr); const w = h.box(1.4, 1.4, 0.3, '#bfe9ff', { emissive: new THREE.Color('#bfe9ff'), emissiveIntensity: 0.3 }); w.position.set(wx, 5.7, 3.05); g.add(w); });
+      g.add(h.tree(-9, 7, 1.0)); g.add(h.tree(9, 7, 0.9, '#37b24d')); g.add(h.tree(-8, -7, 0.95, '#2f9e44'));
+      g.add(h.flower(-5, 6, '#ff6b9d')); g.add(h.flower(5, 6, '#ffd43b')); g.add(h.flower(-3, 7, '#9775fa')); g.add(h.flower(4, 7, '#74c0fc'));
+      g.add(h.lamp(6, -5)); g.add(h.rock(-8, 2, 1.4)); g.add(h.rock(8, -2, 1.2, '#7a8086'));
+    }});
+
+    mkIsland('neon', 'Projects', 'neon', -120, -106, 13, '#b0b8c0', { grass: '#9fce7a', labelY: 26, build: (g, h) => {
+      // stepped marble base
+      const steps1 = h.box(17, 1.2, 14, '#dfe6ec'); steps1.position.set(0, 2.4, 4.2); g.add(steps1);
+      const steps2 = h.box(15, 1.2, 12.5, '#e9eef2'); steps2.position.set(0, 3.4, 4.0); g.add(steps2);
+      const steps3 = h.box(13.5, 1.2, 11, '#f2f5f8'); steps3.position.set(0, 4.4, 3.8); g.add(steps3);
+      // main hall block
+      const hall = h.box(13, 9, 9, '#eef2f6'); hall.position.set(0, 9.4, -1); g.add(hall);
+      const plinth = h.box(13.6, 1.0, 9.6, '#dfe6ec'); plinth.position.set(0, 5.4, -1); g.add(plinth);
+      // square block columns with caps + bases
+      for (let i = 0; i < 5; i++) {
+        const cx = -6 + i * 3;
+        const shaft = h.box(1.3, 7.4, 1.3, '#ffffff'); shaft.position.set(cx, 9.6, 4.5); g.add(shaft);
+        const cap = h.box(1.8, 0.8, 1.8, '#f2f5f8'); cap.position.set(cx, 13.5, 4.5); g.add(cap);
+        const bs = h.box(1.8, 0.8, 1.8, '#f2f5f8'); bs.position.set(cx, 5.9, 4.5); g.add(bs);
+      }
+      // entablature + stepped (voxel) pediment
+      const arch = h.box(15, 1.8, 3.6, '#f7f9fb'); arch.position.set(0, 14.7, 4.3); g.add(arch);
+      const ped = [[14, 16.3], [11, 17.1], [8, 17.9], [5, 18.7], [2.2, 19.5]];
+      ped.forEach(p => { const b = h.box(p[0], 0.9, 3.6, '#e9eef2'); b.position.set(0, p[1], 4.3); g.add(b); });
+      // stepped voxel dome on a square drum
+      const drum = h.box(7, 2.6, 7, '#f2f5f8'); drum.position.set(0, 14.4, -1.5); g.add(drum);
+      const domeT = [[6, 16.0], [4.6, 17.0], [3.2, 17.9], [1.8, 18.7]];
+      domeT.forEach(d => { const b = h.box(d[0], 1.1, d[0], '#9ec5e8'); b.position.set(0, d[1], -1.5); g.add(b); });
+      const finial = h.box(0.5, 2.2, 0.5, '#ffd43b'); finial.position.set(0, 19.7, -1.5); g.add(finial);
+      // doors + windows
+      const door = h.box(2.6, 4.8, 0.5, '#8499a8'); door.position.set(0, 6.8, 4.7); g.add(door);
+      [-3.6, 3.6].forEach(wx => { const w = h.box(1.5, 2.4, 0.4, '#bcd4ea', { emissive: new THREE.Color('#cfe4f5'), emissiveIntensity: 0.25 }); w.position.set(wx, 9.6, 3.55); g.add(w); });
+      g.add(h.tree(-11, -7, 1.0, '#2f9e44')); g.add(h.tree(11, -7, 0.95)); g.add(h.tree(-11, 8, 0.9));
+      g.add(h.lamp(-9, 9)); g.add(h.lamp(9, 9));
+    }});
+
+    mkIsland('library', 'Library Light', 'library', 120, -118, 12, '#4dabf7', { grass: '#74c0fc', labelY: 22, build: (g, h) => {
+      const tower = h.box(5, 9, 5, '#e9ecef'); tower.position.y = 6.5; g.add(tower);
+      const roof = h.cone(4.2, 3, '#4dabf7', 4); roof.rotation.y = Math.PI / 4; roof.position.y = 12.5; g.add(roof);
+      const bookCols = ['#fa5252', '#37b24d', '#ffd43b', '#4dabf7', '#f06595'];
+      bookCols.forEach((c, i) => { const bk = h.box(1.4, 2.6, 0.8, c); bk.position.set(-6 + i * 0.95, 4 + (i % 2) * 0.4, 5); bk.rotation.z = (i % 2 ? 0.06 : -0.06); g.add(bk); });
+      g.add(h.tree(8, 7, 1.0)); g.add(h.tree(-8, 6, 0.85, '#37b24d'));
+      [5, 8].forEach(wy => { [-1.4, 1.4].forEach(wx => { const w = h.box(1.0, 1.2, 0.25, '#ffe066', { emissive: new THREE.Color('#ffd43b'), emissiveIntensity: 0.45 }); w.position.set(wx, wy, 2.55); g.add(w); }); });
+      const door = h.box(1.6, 2.4, 0.4, '#6d4c41'); door.position.set(0, 3.2, 2.55); g.add(door);
+      g.add(h.lamp(7, 7));
+    }});
+
+    this.islands = islands;
+    this._total = islands.length;
+
+    // ---------- BUOYS (removed) ----------
+    this.buoys = [];
+
+    // ---------- CLOUDS ----------
+    this.clouds = [];
+    for (let i = 0; i < 9; i++) {
+      const cg = new THREE.Group();
+      const n = 2 + Math.floor(Math.random() * 3);
+      for (let j = 0; j < n; j++) { const c = box(6 + Math.random() * 5, 4, 5 + Math.random() * 4, '#ffffff', { roughness: 1 }); c.castShadow = false; c.position.set(j * 4 - n * 2, Math.random() * 2, Math.random() * 3); cg.add(c); }
+      cg.position.set((Math.random() - 0.5) * 460, 70 + Math.random() * 40, (Math.random() - 0.5) * 460);
+      scene.add(cg); this.clouds.push(cg);
+    }
+
+    // ---------- SEAGULLS ----------
+    this._birds = [];
+    for (let i = 0; i < 6; i++) {
+      const bg = new THREE.Group();
+      const wl = box(1.3, 0.16, 0.55, '#ffffff'); wl.castShadow = false; wl.position.x = -0.62; wl.rotation.z = 0.32; bg.add(wl);
+      const wr = box(1.3, 0.16, 0.55, '#ffffff'); wr.castShadow = false; wr.position.x = 0.62; wr.rotation.z = -0.32; bg.add(wr);
+      bg.userData = { r: 55 + Math.random() * 130, a: Math.random() * 6.28, cx: (Math.random() - 0.5) * 140, cz: -60 - Math.random() * 120, y: 42 + Math.random() * 26, sp: 0.08 + Math.random() * 0.08 };
+      scene.add(bg); this._birds.push(bg);
+    }
+
+    this._look = new THREE.Vector3(0, 1.5, 0);
+    this.clock = new THREE.Clock();
+
+    this.onResize = () => {
+      if (!this.mountEl) return;
+      const w = this.mountEl.clientWidth, hh = this.mountEl.clientHeight;
+      camera.aspect = w / hh; camera.updateProjectionMatrix(); renderer.setSize(w, hh);
+    };
+    window.addEventListener('resize', this.onResize);
+
+    this.animate = this.animate.bind(this);
+    this.animate();
+  }
+
+  getInput() {
+    const k = this.keys;
+    let throttle = 0, turn = 0;
+    if (k['w'] || k['arrowup']) throttle += 1;
+    if (k['s'] || k['arrowdown']) throttle -= 0.7;
+    if (k['a'] || k['arrowleft']) turn -= 1;
+    if (k['d'] || k['arrowright']) turn += 1;
+    throttle += -this.joy.y;
+    turn += this.joy.x;
+    return { throttle: Math.max(-1, Math.min(1, throttle)), turn: Math.max(-1, Math.min(1, turn)) };
+  }
+
+  animate() {
+    const THREE = window.THREE;
+    const dt = Math.min(0.05, this.clock.getDelta());
+    const t = this.clock.elapsedTime;
+    let { throttle, turn } = this.getInput();
+
+    // autopilot home
+    if (this.autopilot) {
+      const dir = this.islands[0].dock.clone().sub(this.boat.position); dir.y = 0;
+      const dist = dir.length();
+      if (dist < 18) { this.autopilot = false; }
+      else {
+        dir.normalize();
+        const target = Math.atan2(-dir.x, -dir.z);
+        let diff = target - this.boatAngle;
+        while (diff > Math.PI) diff -= Math.PI * 2; while (diff < -Math.PI) diff += Math.PI * 2;
+        turn = Math.max(-1, Math.min(1, diff * 1.6));
+        throttle = 0.9;
+      }
+    }
+
+    // motion
+    this.speed += throttle * 28 * dt;
+    this.speed *= (1 - 1.4 * dt);
+    this.speed = Math.max(-9, Math.min(23, this.speed));
+    const moveFactor = Math.max(0.28, Math.min(1, Math.abs(this.speed) / 6));
+    this.boatAngle -= turn * 1.9 * dt * moveFactor * (this.speed < 0 ? -1 : 1);
+    const fx = -Math.sin(this.boatAngle), fz = -Math.cos(this.boatAngle);
+    this.boat.position.x += fx * this.speed * dt;
+    this.boat.position.z += fz * this.speed * dt;
+    this.boat.position.x = Math.max(-240, Math.min(240, this.boat.position.x));
+    this.boat.position.z = Math.max(-240, Math.min(240, this.boat.position.z));
+    // island & harbor collisions — push the boat off each land lump / pier piling
+    const br = 2.8;
+    for (const is of this.islands) {
+      if (this.boat.position.distanceTo(is.pos) > is.collR + 14) continue;
+      for (const col of is.colliders) {
+        const dx = this.boat.position.x - col.x, dz = this.boat.position.z - col.z;
+        const rr = col.r + br;
+        const d = Math.hypot(dx, dz);
+        if (d < rr && d > 0.0001) {
+          const push = rr - d;
+          this.boat.position.x += (dx / d) * push;
+          this.boat.position.z += (dz / d) * push;
+          this.speed *= 0.55;
+        }
+      }
+    }
+    this.boat.rotation.y = this.boatAngle;
+
+    // bob + bank
+    const bobAmt = this.reduced ? 0.05 : 0.18;
+    this.boatModel.position.y = Math.sin(t * 2.2) * bobAmt;
+    const targetBank = -turn * 0.16;
+    this.boatModel.rotation.z += (targetBank - this.boatModel.rotation.z) * Math.min(1, dt * 6);
+    this.boatModel.rotation.x = Math.sin(t * 1.7) * bobAmt * 0.4 - this.speed * 0.004;
+
+    // foam wake
+    this._foamT += dt;
+    if (Math.abs(this.speed) > 4 && this._foamT > 0.08) {
+      this._foamT = 0;
+      const f = new THREE.Mesh(this.foamGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, roughness: 1 }));
+      f.position.set(this.boat.position.x - fx * 3, 0.35, this.boat.position.z - fz * 3);
+      f.scale.setScalar(0.6); this.scene.add(f); this.foams.push({ m: f, life: 0 });
+    }
+    for (let i = this.foams.length - 1; i >= 0; i--) {
+      const fo = this.foams[i]; fo.life += dt;
+      fo.m.scale.setScalar(0.6 + fo.life * 2.4);
+      fo.m.material.opacity = Math.max(0, 0.7 * (1 - fo.life / 1.3));
+      if (fo.life > 1.3) { this.scene.remove(fo.m); fo.m.material.dispose(); this.foams.splice(i, 1); }
+    }
+
+    // water shader time
+    if (this.waterUniforms) this.waterUniforms.uTime.value = t;
+
+    // env
+    if (this._beam) this._beam.rotation.y += dt * (this.reduced ? 0.35 : 1.1);
+    if (this._gear) this._gear.rotation.z += dt * (this.reduced ? 0.3 : 0.9);
+    if (this._compass) { this._compass.position.y = 4.8 + Math.sin(t * 1.5) * (this.reduced ? 0.05 : 0.35); this._compass.rotation.y += dt * (this.reduced ? 0.1 : 0.35); }
+    this.buoys.forEach(b => { b.ball.position.y = 2.7 + Math.sin(t * 2 + b.phase) * (this.reduced ? 0.06 : 0.25); b.ball.material.emissiveIntensity = 0.7 + Math.sin(t * 3 + b.phase) * 0.3; });
+    this.clouds.forEach(c => { c.position.x += dt * (this.reduced ? 0.6 : 1.8); if (c.position.x > 250) c.position.x = -250; });
+    // island name labels: gentle bob + fade by distance
+    this.islands.forEach(is => {
+      if (!is.label) return;
+      const d = this.boat.position.distanceTo(is.pos);
+      const op = Math.max(0, Math.min(1, (185 - d) / 95));
+      is.label.material.opacity = op; is.label.visible = op > 0.02;
+      is.label.position.y = is.labelY + Math.sin(t * 1.4 + is.pos.x * 0.1) * (this.reduced ? 0.12 : 0.6);
+    });
+    if (this._smoke) this._smoke.forEach((s, i) => { s.m.position.y += dt * (this.reduced ? 0.5 : 1.5); const rise = s.m.position.y - s.y0; s.m.material.opacity = Math.max(0, 0.6 * (1 - rise / 13)); s.m.position.x = Math.sin(t * 0.5 + i) * 1.4; if (rise > 13) s.m.position.y = s.y0; });
+    if (this._birds) this._birds.forEach(b => { const u = b.userData; u.a += dt * u.sp; b.position.set(u.cx + Math.cos(u.a) * u.r, u.y, u.cz + Math.sin(u.a) * u.r); b.rotation.y = -u.a + Math.PI / 2; const flap = Math.sin(t * 6 + u.a * 4) * 0.45; b.children[0].rotation.z = 0.32 + flap; b.children[1].rotation.z = -0.32 - flap; });
+
+    // camera follow (arcs toward an island while its panel is open)
+    const dist = 86, height = 48;
+    const act = this.state.activePanel ? this.islands.find(i => i.panel === this.state.activePanel) : null;
+    let desired, lookT, camF;
+    if (act) {
+      const toB = new THREE.Vector3().subVectors(this.boat.position, act.pos); toB.y = 0;
+      if (toB.lengthSq() < 0.01) toB.set(0, 0, 1); toB.normalize();
+      desired = new THREE.Vector3(act.pos.x + toB.x * 64, 58, act.pos.z + toB.z * 64);
+      lookT = new THREE.Vector3(act.pos.x, 9, act.pos.z);
+      camF = Math.min(1, dt * 1.8);
+    } else {
+      desired = new THREE.Vector3(this.boat.position.x - fx * dist, height, this.boat.position.z - fz * dist);
+      lookT = new THREE.Vector3(this.boat.position.x + fx * 12, 3.0, this.boat.position.z + fz * 12);
+      camF = this.reduced ? Math.min(1, dt * 2) : Math.min(1, dt * 3.4);
+    }
+    this.camera.position.lerp(desired, camF);
+    this._look.lerp(lookT, camF);
+    this.camera.lookAt(this._look);
+
+    this.updateDockState();
+    this.drawMini();
+
+    this.renderer.render(this.scene, this.camera);
+    this.raf = requestAnimationFrame(this.animate);
+  }
+
+  updateDockState() {
+    if (!this.islands) return;
+    let nearest = null, nd = 1e9;
+    for (const is of this.islands) {
+      const d = this.boat.position.distanceTo(is.dock);
+      if (d < nd) { nd = d; nearest = is; }
+    }
+    const cand = (nearest && nd < 16) ? nearest : null;
+    const cid = cand ? cand.id : '_none_';
+    if (cid !== this._promptId) {
+      this._promptId = cid;
+      if (!this.state.activePanel) this.setState({ dockTarget: cand });
+    }
+    // auto-close when sailing away
+    if (this.state.activePanel) {
+      const active = this.islands.find(i => i.panel === this.state.activePanel);
+      if (active && this.boat.position.distanceTo(active.dock) > 26) this.closePanel();
+    }
+  }
+
+  tryDock() {
+    const tgt = this.state.dockTarget;
+    if (tgt && !this.state.activePanel) { this.playChime(); this.markVisited(tgt); this.setState({ activePanel: tgt.panel, dockTarget: null }); this._promptId = '_none_'; }
+  }
+  markVisited(tgt) {
+    if (!tgt || this.state.visited[tgt.id]) return;
+    const visited = Object.assign({}, this.state.visited, { [tgt.id]: true });
+    try { localStorage.setItem('brickVoyage.visited.v1', JSON.stringify(Object.keys(visited))); } catch (e) {}
+    const all = Object.keys(visited).length >= (this._total || 5);
+    this.setState({ visited, toast: { title: all ? 'Explorer \u2014 every island found!' : tgt.title, all } });
+    this.playChime();
+    clearTimeout(this._toastT);
+    this._toastT = setTimeout(() => this.setState({ toast: null }), 3000);
+  }
+  closePanel() { if (this.state.activePanel) this.setState({ activePanel: null }); }
+  goHome() { this.autopilot = true; this.closePanel(); }
+
+  drawMini() {
+    const c = this.miniCanvas; if (!c || !this.islands) return;
+    const ctx = c.getContext('2d'); const W = 160, H = 160;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0b3a66'; ctx.fillRect(0, 0, W, H);
+    const range = 200, sc = (W / 2 - 8) / range, cx = W / 2, cy = H / 2;
+    ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx, 6); ctx.lineTo(cx, H - 6); ctx.moveTo(6, cy); ctx.lineTo(W - 6, cy); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = 'bold 11px Nunito,sans-serif'; ctx.textAlign = 'center'; ctx.fillText('N', cx, 13);
+    for (const is of this.islands) {
+      let x = cx + is.pos.x * sc, y = cy + is.pos.z * sc;
+      x = Math.max(8, Math.min(W - 8, x)); y = Math.max(8, Math.min(H - 8, y));
+      const seen = !!this.state.visited[is.id];
+      ctx.globalAlpha = seen ? 1 : 0.4;
+      ctx.beginPath(); ctx.arc(x, y, 5.5, 0, 7); ctx.fillStyle = is.mini; ctx.fill();
+      ctx.strokeStyle = seen ? '#ffd43b' : '#fff'; ctx.lineWidth = seen ? 2.5 : 1.5; ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    const bx = Math.max(8, Math.min(W - 8, cx + this.boat.position.x * sc));
+    const by = Math.max(8, Math.min(H - 8, cy + this.boat.position.z * sc));
+    ctx.save(); ctx.translate(bx, by); ctx.rotate(this.boatAngle);
+    ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(5.5, 6); ctx.lineTo(-5.5, 6); ctx.closePath();
+    ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.strokeStyle = '#1c7ed6'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.restore();
+  }
+}
+</script>
+</body>
+</html>

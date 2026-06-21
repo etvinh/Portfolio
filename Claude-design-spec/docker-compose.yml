@@ -1,0 +1,27 @@
+# Local Postgres for Brick Voyage (dev + test databases).
+#   npm run db:up      -> start
+#   npm run db:reset   -> wipe volume and recreate
+# Connection strings live in .env (see .env.example).
+
+services:
+  db:
+    image: postgres:16
+    container_name: brickvoyage-db
+    environment:
+      POSTGRES_USER: brick
+      POSTGRES_PASSWORD: brick
+      POSTGRES_DB: brickvoyage
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # init scripts run only on first boot of an empty volume:
+      - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brick -d brickvoyage"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

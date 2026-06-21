@@ -14,6 +14,13 @@ out/
 .cache/
 .parcel-cache/
 .turbo/
+.swc/
+
+# Next.js
+next-env.d.ts
+
+# Deployment
+.vercel
 
 # Logs
 logs
@@ -53,3 +60,4 @@ Desktop.ini
 *.tsbuildinfo
 .eslintcache
 .stylelintcache
+*.pem
