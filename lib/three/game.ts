@@ -4,6 +4,8 @@ import { createBoat, type Boat } from './boat';
 import { createSceneBundle, type SceneBundle } from './scene';
 import { createSky, type Sky } from './sky';
 import { createWater, type Water } from './water';
+import { collideBoat } from './collision';
+import { buildAllIslands, type Island } from './islands';
 
 // Game state surface exposed to React. The HUD subscribes and re-renders
 // when fields change. Kept intentionally minimal — most of the world state
@@ -24,6 +26,7 @@ export class Game {
   private water: Water | null = null;
   private sky: Sky | null = null;
   private boat: Boat | null = null;
+  private islands: Island[] = [];
   private clock = new THREE.Clock();
   private raf = 0;
   private speed = 0;
@@ -65,6 +68,8 @@ export class Game {
 
     this.boat = createBoat(HULL_COLOR);
     bundle.scene.add(this.boat.group);
+
+    this.islands = buildAllIslands(bundle.scene);
 
     // keyboard focus: an embedded iframe only receives keydown once focused
     this.mountEl.setAttribute('tabindex', '0');
@@ -118,6 +123,7 @@ export class Game {
     this.water = null;
     this.sky = null;
     this.boat = null;
+    this.islands = [];
     this.subs.clear();
   }
 
@@ -153,6 +159,10 @@ export class Game {
     boatGroup.position.z += fz * this.speed * dt;
     boatGroup.position.x = Math.max(-240, Math.min(240, boatGroup.position.x));
     boatGroup.position.z = Math.max(-240, Math.min(240, boatGroup.position.z));
+
+    // push-out collision against island lumps + pier pilings
+    this.speed = collideBoat(boatGroup.position, this.islands, this.speed);
+
     boatGroup.rotation.y = this.boatAngle;
 
     // bob + bank + pitch
@@ -165,6 +175,11 @@ export class Game {
 
     // water shader time
     this.water.uniforms.uTime.value = t;
+
+    // per-island tickers (e.g. socials' rotating lighthouse beam)
+    for (const is of this.islands) {
+      is.tick?.(dt, t, this.reduced);
+    }
 
     // simple chase camera — proper "arc to active panel" lands in chunk 3
     const dist = 86;
