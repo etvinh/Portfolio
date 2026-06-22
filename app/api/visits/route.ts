@@ -3,6 +3,10 @@ import { recordDiscovery, recordVisit } from '@/lib/services/stats.service';
 
 export const runtime = 'nodejs';
 
+// Skip build-time pre-rendering — the route would import lib/db/client and
+// try to query Postgres, which isn't reachable from inside `next build`.
+export const dynamic = 'force-dynamic';
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISLAND_ID_RE = /^[a-z0-9_-]{1,32}$/;

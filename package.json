@@ -20,7 +20,8 @@
     "test:ui": "vitest run --no-file-parallelism test/ui",
     "test:services": "vitest run --no-file-parallelism test/services",
     "test:coverage": "vitest run --no-file-parallelism --coverage",
-    "setup": "cp -n .env.example .env || true && npm install && npm run db:up"
+    "setup": "cp -n .env.example .env || true && npm install && npm run db:up",
+    "package": "docker buildx build --platform linux/amd64 -t brickvoyage:latest --load . && mkdir -p dist && docker save brickvoyage:latest | gzip > dist/brickvoyage.tar.gz && echo \"\\n→ dist/brickvoyage.tar.gz ready ($(du -h dist/brickvoyage.tar.gz | cut -f1))\""
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

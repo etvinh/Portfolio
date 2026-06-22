@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.gitignore
+.env*
+!.env.example
+npm-debug.log*
+.DS_Store
+coverage
+test
+HelloWorld
+reference
+Dockerfile
+.dockerignore
+dist
