@@ -7,12 +7,11 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 
-const url = process.env.DATABASE_URL_TEST;
-if (!url) {
-  throw new Error('DATABASE_URL_TEST is required for service tests.');
-}
-
 export async function setup(): Promise<void> {
+  const url = process.env.DATABASE_URL_TEST;
+  if (!url) {
+    throw new Error('DATABASE_URL_TEST is required for service tests.');
+  }
   const sql = postgres(url, { max: 1, onnotice: () => {} });
   try {
     const rows = await sql<{ current_database: string }[]>`SELECT current_database()`;
