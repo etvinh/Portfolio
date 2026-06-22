@@ -1,4 +1,13 @@
+import 'dotenv/config';
 import '@testing-library/jest-dom/vitest';
+
+// Point lib/db/client at the TEST database, not the dev one. Done here
+// (before any test file imports kick in) so client.ts itself can stay branch-
+// free — it just reads DATABASE_URL. Safety: helpers also assert
+// current_database = 'brickvoyage_test' before any destructive op.
+if (process.env.DATABASE_URL_TEST) {
+  process.env.DATABASE_URL = process.env.DATABASE_URL_TEST;
+}
 
 // jsdom has no WebGL or WebAudio — stub them so HUD/React tests don't crash
 // when a component happens to construct a renderer or audio context.
