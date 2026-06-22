@@ -12,7 +12,11 @@ services:
       POSTGRES_PASSWORD: brick
       POSTGRES_DB: brickvoyage
     ports:
-      - "5432:5432"
+      # Host 5433 → container 5432 (5432 is occupied by another local Postgres).
+      # The app inside the prod container talks to "db:5432" over the compose
+      # network — this host mapping only matters for local dev tools (psql,
+      # the dev server) connecting from the host.
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Run on first boot of an empty volume, in this order (lexical):

@@ -1,8 +1,8 @@
 # Brick Voyage — Full-Stack Build Spec
 
-Handoff for Claude Code. This repo currently contains an **interactive 3D prototype** (`Brick Voyage.dc.html`) — a toy LEGO/voxel archipelago you sail a brick boat around; each island is a portfolio section. The task is to rebuild it as a **production Next.js full-stack app** while preserving the look, feel, and gameplay of the prototype.
+Handoff for Claude Code. This repo currently contains an **interactive 3D prototype** (`reference/Brick Voyage.dc.html`) — a toy LEGO/voxel archipelago you sail a brick boat around; each island is a portfolio section. The task is to rebuild it as a **production Next.js full-stack app** while preserving the look, feel, and gameplay of the prototype.
 
-> Read `Brick Voyage.dc.html` first. It is the source of truth for the 3D scene, controls, camera, water, islands, docking, achievements, and HUD. Port that logic faithfully — do not redesign the world.
+> Read `reference/Brick Voyage.dc.html` first. It is the source of truth for the 3D scene, controls, camera, water, islands, docking, achievements, and HUD. Port that logic faithfully — do not redesign the world.
 
 ---
 
@@ -25,7 +25,8 @@ Handoff for Claude Code. This repo currently contains an **interactive 3D protot
 | 3D | **Three.js** (port the prototype's scene) |
 | DB | **Postgres** |
 | DB access | **`postgres`** (postgres.js) driver — raw SQL via tagged-template queries (auto-parameterized, safe from SQLi). Schema lives in `db/schema.sql`; no migration system — schema changes ship by wiping and replaying. No ORM. |
-| Testing | **Vitest** — UI tests (Testing Library + jsdom) **and** backend service tests |
+| Testing | **Vitest** — UI tests (Testing Library + jsdom) **and** backend service tests. **`@vitest/coverage-v8`** with thresholds (see §8). |
+| Linting | **ESLint** (flat config, `eslint.config.mjs`) — `eslint-config-next` + `typescript-eslint`. Wired into `predev`/`prebuild`/`pretest` so a dirty tree blocks `dev`, `build`, and `test`. |
 | Auth (minigame) | Username + password, **bcryptjs** hashing + **jose** httpOnly JWT session |
 
 Keep dependencies lean. Don't add a UI kit — the prototype is styled with inline styles (fonts: **Baloo 2** + **Nunito**); keep that visual language.
@@ -42,8 +43,9 @@ These are scaffolded — wire your code to them, don't reinvent:
 | `db/schema.sql` | Canonical table DDL (mirrors §7). Applied to dev DB on first boot; the Vitest service-test setup re-applies it to `brickvoyage_test`. |
 | `db/data.sql` | Sample data — to be populated. Runs after `schema.sql`. |
 | `.env.example` | `DATABASE_URL`, `DATABASE_URL_TEST`, `SESSION_SECRET` |
-| `vitest.config.ts` | jsdom for `test/ui/**`, node for `test/services/**`; service tests run single-threaded |
+| `vitest.config.ts` | jsdom for `test/ui/**`, node for `test/services/**`; service tests run single-threaded; coverage via v8 with the §8 thresholds enforced. |
 | `test/setup.ts` | jest-dom matchers + WebGL/WebAudio stubs for jsdom |
+| `eslint.config.mjs` | Flat ESLint config — extends `next/core-web-vitals` + `typescript-eslint` recommended. |
 
 **One-command bootstrap:** `npm run setup` (copies `.env`, installs, starts the Postgres container — `database.sql` → `schema.sql` → `data.sql` run automatically on first boot of the empty volume). Then `npm run dev`.
 
@@ -87,7 +89,7 @@ test/
 
 ## 4. Porting the prototype (the game itself)
 
-From `Brick Voyage.dc.html`, port into `components/Game` + `lib/three`:
+From `reference/Brick Voyage.dc.html`, port into `components/Game` + `lib/three`:
 
 - **Sea**: large plane, GPU vertex-wave displacement + monotone tonal wave-band fragment shader (`onBeforeCompile`). No glare, no white ripple lines. Reduced-motion calms it.
 - **Boat**: blocky voxel tug (hull, wheelhouse, funnel, mast/sail, life-ring, railings). Arcade movement — velocity + drag + turning, **not** physics. WASD/arrows + mobile joystick.
@@ -216,7 +218,36 @@ Use a **separate test database** for Vitest service tests (`brickvoyage_test`, c
 - `auth.service`: register hashes password; login rejects wrong password; duplicate username rejected; password never returned.
 - Score submission sanity checks reject implausible times.
 
-Use transactional fixtures or truncate-between-tests. Add `pnpm test` / `npm test` running the full suite; aim for meaningful coverage of `lib/services` (the money paths), not 100% of the Three.js code.
+Use transactional fixtures or truncate-between-tests. `npm test` runs the full suite; `npm run test:coverage` runs it with v8 coverage reporting.
+
+### Coverage thresholds (enforced)
+
+Configure `vitest.config.ts` to **fail the run** if these aren't met. Targets are aimed at the money paths (`lib/services/**`, route handlers, auth, leaderboard, stats) — not at Three.js code, which is largely untestable in jsdom.
+
+```ts
+coverage: {
+  provider: 'v8',
+  reporter: ['text', 'html', 'lcov'],
+  include: ['lib/services/**', 'app/api/**', 'lib/auth/**', 'lib/db/**'],
+  exclude: ['**/*.test.ts', '**/*.d.ts', 'lib/three/**', 'components/Game/**'],
+  thresholds: { lines: 80, statements: 80, functions: 80, branches: 70 },
+}
+```
+
+`components/Game/**` and `lib/three/**` are excluded because they construct WebGL contexts and Three.js scenes; coverage on rendered pixels isn't meaningful, and stubbing it just to inflate numbers is wasted work. Coverage measures *services and routes*; UI tests verify *behavior* against mocks.
+
+### Linting (enforced)
+
+ESLint flat config in `eslint.config.mjs` extends `next/core-web-vitals` and `typescript-eslint`'s recommended set. The lint step is wired into npm hooks so a dirty tree can't ship:
+
+```json
+"lint":     "eslint . --max-warnings 0",
+"predev":   "npm run lint",
+"prebuild": "npm run lint",
+"pretest":  "npm run lint"
+```
+
+`--max-warnings 0` makes a single warning fail the run — warnings rot into noise otherwise. CI runs `npm test` which transitively runs `npm run lint`.
 
 ---
 
@@ -283,6 +314,8 @@ The web container talks to the DB container over Docker's user-defined bridge ne
 - [ ] Race Cove: playable timed race, score save behind username+password (hashed), leaderboard renders.
 - [ ] `db/database.sql`, `db/schema.sql`, `db/data.sql` boot a working Postgres on `npm run db:up`. `data.sql` has sample rows that make the leaderboard + stats panels render with real-looking data.
 - [ ] Vitest UI **and** service suites pass; service tests reapply `schema.sql` to `brickvoyage_test` and truncate between tests; `npm test` green in CI.
+- [ ] `npm run test:coverage` meets the §8 thresholds (lines/statements/functions ≥ 80, branches ≥ 70) over `lib/services/**`, `app/api/**`, `lib/auth/**`, `lib/db/**`.
+- [ ] `npm run lint` is clean (`--max-warnings 0`); `predev`/`prebuild`/`pretest` hooks block a dirty tree.
 - [ ] No secrets committed; passwords hashed; basic rate limiting on auth + score endpoints (rate-limit keyed on the `X-Forwarded-For` client IP).
 - [ ] `npm run package` produces `dist/brick-voyage.tar.gz` — the web image (nginx + Next.js + entrypoint, **no Postgres**), deployable to EC2 with `docker load` + `docker compose up -d`.
 - [ ] Sample `nginx.conf` ships in the web image and terminates TLS, sets `X-Forwarded-Proto`/`-For`/`Host`, and proxies to Next.js on `localhost`.

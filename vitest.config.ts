@@ -15,5 +15,13 @@ export default defineConfig({
     ],
     // service tests hit a real (test) DB — keep them serial to avoid cross-talk
     poolOptions: { threads: { singleThread: true } },
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html', 'lcov'],
+      // Cover the money paths; skip Three.js / WebGL code that jsdom can't run.
+      include: ['lib/services/**', 'app/api/**', 'lib/auth/**', 'lib/db/**'],
+      exclude: ['**/*.test.ts', '**/*.d.ts', 'lib/three/**', 'components/Game/**'],
+      thresholds: { lines: 80, statements: 80, functions: 80, branches: 70 },
+    },
   },
 });

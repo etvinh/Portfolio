@@ -1,0 +1,19 @@
+/* Mirrors the prototype's base styles — full-bleed sea-blue background,
+   Nunito as the default font, no scroll, no tap highlight on mobile. */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #9fd3ff;
+  font-family: var(--font-nunito), system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+canvas {
+  display: block;
+}
