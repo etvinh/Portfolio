@@ -16,7 +16,7 @@ export type GameState = {
 };
 
 const SKY_COLOR = '#9fd3ff';
-const SEA_COLOR = '#1c7ed6';
+const SEA_COLOR = '#0a4a6e'; // darker than the prototype's #1c7ed6
 const HULL_COLOR = '#e03131';
 
 export class Game {
@@ -63,13 +63,27 @@ export class Game {
     this.sky = createSky(SKY_COLOR);
     bundle.scene.add(this.sky.mesh);
 
-    this.water = createWater(SEA_COLOR, this.reduced);
+    // Build islands BEFORE water — the water shader takes their positions +
+    // visual radii as a uniform array for the shoreline foam effect.
+    this.islands = buildAllIslands(bundle.scene);
+
+    this.water = createWater(
+      SEA_COLOR,
+      this.reduced,
+      this.islands.map((i) => ({
+        x: i.pos.x,
+        z: i.pos.z,
+        // Island.collR is the visual radius × 1.7 — recover the visual one.
+        radius: i.collR / 1.7,
+      })),
+    );
+    // Deep plane sits below the surface; surface added second so transparent
+    // composite layers on top.
+    bundle.scene.add(this.water.deep);
     bundle.scene.add(this.water.mesh);
 
     this.boat = createBoat(HULL_COLOR);
     bundle.scene.add(this.boat.group);
-
-    this.islands = buildAllIslands(bundle.scene);
 
     // keyboard focus: an embedded iframe only receives keydown once focused
     this.mountEl.setAttribute('tabindex', '0');
@@ -173,8 +187,8 @@ export class Game {
     model.rotation.z += (targetBank - model.rotation.z) * Math.min(1, dt * 6);
     model.rotation.x = Math.sin(t * 1.7) * bobAmt * 0.4 - this.speed * 0.004;
 
-    // water shader time
-    this.water.uniforms.uTime.value = t;
+    // tick the Three.js Water shader (normal-map UV scroll)
+    this.water.update(dt);
 
     // per-island tickers (e.g. socials' rotating lighthouse beam)
     for (const is of this.islands) {

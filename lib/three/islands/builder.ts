@@ -131,13 +131,20 @@ function makeLand(
   return lumps;
 }
 
+// Length of the wooden pier in cv units, from the coast outward. The dock
+// is anchored at startZ + PIER_LENGTH (the far, open-sea end) so the boat
+// parks at the pier-tip rather than alongside it. This also closes the
+// "boat phases through the pier-end" bug — colliders can now cover the full
+// pier length without trapping the boat past the dock.
+const PIER_LENGTH = 15;
+
 // Wooden pier pointing back at the spawn point. Adds deck, slats, posts,
 // bollards, and a rope coil. Returns nothing — caller derives pier
 // colliders from the dock direction + radius.
 function buildPier(g: THREE.Group, dir: THREE.Vector3, radius: number): void {
   const dockGroup = new THREE.Group();
   dockGroup.rotation.y = Math.atan2(dir.x, dir.z);
-  const L = 15;
+  const L = PIER_LENGTH;
   const startZ = radius * 0.72;
 
   const deckBoard = box(5.2, 0.45, L, '#7a4e28');
@@ -229,15 +236,18 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
   const extras = def.build(g, { ...primitives, radius: def.radius }) ?? undefined;
   scene.add(g);
 
-  // dock point: a step beyond the island, pointed back at the spawn at (0, 0, 36)
+  // cv points from this island toward the spawn (0, 0, 36) — the pier
+  // extends in that direction, and the boat approaches from beyond.
   const cv = new THREE.Vector3(0, 0, 36).sub(new THREE.Vector3(def.x, 0, def.z));
   cv.y = 0;
   cv.normalize();
-  const dock = new THREE.Vector3(
-    def.x + cv.x * (def.radius + 6),
-    0,
-    def.z + cv.z * (def.radius + 6),
-  );
+
+  // Dock anchored at the FAR end of the pier (open-sea side). Previously it
+  // sat at radius+6, mid-deck — which left the open-sea half of the pier
+  // unguarded and the boat would phase through it on approach.
+  const startD = def.radius * 0.72;
+  const dockD = startD + PIER_LENGTH;
+  const dock = new THREE.Vector3(def.x + cv.x * dockD, 0, def.z + cv.z * dockD);
 
   buildPier(g, cv, def.radius);
 
@@ -246,14 +256,19 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
   label.position.set(def.x, labelY, def.z);
   scene.add(label);
 
-  // Per-lump circle colliders + circles down the pier so a boat can nose up
-  // to a dock without phasing through the pilings.
+  // Per-lump circle colliders + circles down the pier.
+  //
+  // Pier colliders run from just past the coast to within 5 units of the
+  // dock-tip — 5 ≈ boat-radius (2.8) + collider-radius (2.2). That leaves
+  // exactly enough room for the boat to nose into the dock without bumping,
+  // while blocking the boat from sailing onto the pier deck from any angle.
   const colliders: Collider[] = [];
   lumps.forEach(([lx, lz, lw, ld]) => {
     const r = Math.max(lw, ld) * 0.5 * 0.9;
     colliders.push({ x: def.x + lx, z: def.z + lz, r });
   });
-  for (let d = def.radius * 0.72 + 1; d <= def.radius + 3.5; d += 2.4) {
+  const endGap = 5;
+  for (let d = startD + 1; d <= dockD - endGap; d += 2.4) {
     colliders.push({ x: def.x + cv.x * d, z: def.z + cv.z * d, r: 2.2 });
   }
 
