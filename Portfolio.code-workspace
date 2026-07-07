@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "Portfolio",
+			"path": "."
+		},
+		{
+			"name": "HelloWorld",
+			"path": "../../Downloads/group-project-main-App-HelloWorld/App/HelloWorld"
+		}
+	],
+	"settings": {}
+}

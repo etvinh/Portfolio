@@ -12,6 +12,7 @@ export type GameAudio = {
   setOn: (on: boolean) => void;
   chime: () => void;
   click: () => void;
+  gull: () => void;
   dispose: () => void;
 };
 
@@ -93,6 +94,42 @@ export function createAudio(reducedMotion: boolean): GameAudio | null {
         o.start(s);
         o.stop(s + 0.6);
       });
+    },
+
+    // Distant seagull cry — a short burst of 2-4 descending "kee-aw" caws.
+    // Each caw is a sawtooth swept down in pitch, bandpassed to a bird-like
+    // formant, with a fast pluck envelope. Pitches + counts are randomized so
+    // repeated calls don't sound identical.
+    gull: () => {
+      if (!ctx || !master) return;
+      const t0 = ctx.currentTime;
+      const caws = 2 + Math.floor(Math.random() * 3);
+      const basePitch = 900 + Math.random() * 500;
+      for (let i = 0; i < caws; i++) {
+        const s = t0 + i * (0.16 + Math.random() * 0.07);
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        const f = basePitch * (1 - i * 0.08);
+        o.frequency.setValueAtTime(f * 1.25, s);
+        o.frequency.exponentialRampToValueAtTime(f * 0.8, s + 0.13);
+
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = f;
+        bp.Q.value = 6;
+
+        const g = ctx.createGain();
+        // Quiet + distant; sits under the ocean ambient.
+        g.gain.setValueAtTime(0, s);
+        g.gain.linearRampToValueAtTime(0.07, s + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, s + 0.16);
+
+        o.connect(bp);
+        bp.connect(g);
+        g.connect(master!);
+        o.start(s);
+        o.stop(s + 0.2);
+      }
     },
 
     click: () => {

@@ -9,6 +9,8 @@ import { buildAllIslands, type Island } from './islands';
 import { createClouds } from './clouds';
 import { createBirds, type BirdData } from './birds';
 import { createAudio, type GameAudio } from './audio';
+import { TimeOfDay } from './timeOfDay';
+import { createWake, type Wake } from './wake';
 
 // ---- React-facing state ----
 //
@@ -47,6 +49,10 @@ const SKY_COLOR = '#9fd3ff';
 const SEA_COLOR = '#0a4a6e';
 const HULL_COLOR = '#e03131';
 
+// Wake particle spawn cadence — fixed real-time interval so density is FPS-
+// independent. Smaller = denser. The Wake module spawns 2 particles per call.
+const WAKE_SPAWN_INTERVAL = 0.11;
+
 export class Game {
   private mountEl: HTMLElement;
   private input = new InputManager();
@@ -57,9 +63,9 @@ export class Game {
   private islands: Island[] = [];
   private clouds: THREE.Group[] = [];
   private birds: THREE.Group[] = [];
-  private foamGeo: THREE.CircleGeometry | null = null;
-  private foams: { mesh: THREE.Mesh; life: number }[] = [];
-  private foamT = 0;
+  private wake: Wake | null = null;
+  private wakeT = 0;
+  private tod: TimeOfDay | null = null;
   private clock = new THREE.Clock();
   private raf = 0;
   private speed = 0;
@@ -73,6 +79,9 @@ export class Game {
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private miniCanvas: HTMLCanvasElement | null = null;
   private audio: GameAudio | null = null;
+  // Countdown (seconds) to the next ambient seagull cry — only fires in
+  // daylight while sound is on. Reset to a random gap after each call.
+  private gullTimer = 3;
 
   private state: GameState = {
     soundOn: false,
@@ -111,8 +120,8 @@ export class Game {
     this.sky = createSky(SKY_COLOR);
     bundle.scene.add(this.sky.mesh);
 
-    // Build islands BEFORE water — the water shader takes their positions +
-    // visual radii as a uniform array for the shoreline foam effect.
+    // Build islands BEFORE water — the water shader takes island positions +
+    // visual radii as a uniform array (shoreline foam).
     this.islands = buildAllIslands(bundle.scene);
 
     this.water = createWater(
@@ -130,9 +139,9 @@ export class Game {
     this.boat = createBoat(HULL_COLOR);
     bundle.scene.add(this.boat.group);
 
-    // ---- foam wake geo (shared by all wake circles) ----
-    this.foamGeo = new THREE.CircleGeometry(1, 14);
-    this.foamGeo.rotateX(-Math.PI / 2);
+    // ---- particle wake (replaces the old expanding-circle foam meshes) ----
+    this.wake = createWake(this.reduced);
+    bundle.scene.add(this.wake.object);
 
     // ---- atmosphere ----
     this.clouds = createClouds(bundle.scene);
@@ -140,6 +149,46 @@ export class Game {
 
     // ---- audio (lazy: AudioContext only spins up on first toggle) ----
     this.audio = createAudio(this.reduced);
+
+    // No post-processing. The scene renders directly to the canvas: the
+    // WebGL context's own MSAA (antialias: true) handles edges, and ACES +
+    // sRGB are applied by the renderer on the way out. A previous composer
+    // pipeline (offscreen HalfFloat target + bloom + output pass) cost ~13
+    // full-screen draws per frame, shifted hues, and could smear NaN texels
+    // from additive materials into wandering black blocks — cut wholesale.
+
+    // ---- time-of-day controller ----
+    // Aggregate every lamp emissive material + point light from all islands
+    // and feed them to the controller. Lamp base intensities are snapshotted
+    // here so the controller can scale them without losing the rest state.
+    const lampMaterials = this.islands.flatMap((i) => i.lampMaterials);
+    const lampBaseIntensities = lampMaterials.map((m) => Math.max(0.8, m.emissiveIntensity));
+    const lampPointLights = this.islands.flatMap((i) => i.lampPointLights);
+    const lampPointBaseIntensities = lampPointLights.map(() => 1.4);
+
+    // The boat's stern lantern rides the same dusk ramp as the dock lamps.
+    if (this.boat) {
+      lampMaterials.push(this.boat.lampMat);
+      lampBaseIntensities.push(1.1);
+      lampPointLights.push(this.boat.lampLight);
+      lampPointBaseIntensities.push(1.2);
+    }
+
+    this.tod = new TimeOfDay(
+      {
+        skyUniforms: this.sky.uniforms,
+        waterUniforms: this.water.uniforms,
+        sun: bundle.sun,
+        hemi: bundle.hemi,
+        ambient: bundle.ambient,
+        renderer: bundle.renderer,
+        lampMaterials,
+        lampBaseIntensities,
+        lampPointLights,
+        lampPointBaseIntensities,
+      },
+      0.4, // start mid-morning so the player lands in daylight
+    );
 
     // ---- load saved achievements ----
     let visited: Record<string, boolean> = {};
@@ -220,13 +269,10 @@ export class Game {
     this.audio?.dispose();
     this.audio = null;
 
-    // Dispose foam materials before tearing down the scene.
-    for (const fo of this.foams) {
-      (fo.mesh.material as THREE.Material).dispose();
-    }
-    this.foams = [];
-    this.foamGeo?.dispose();
-    this.foamGeo = null;
+    this.wake?.dispose();
+    this.wake = null;
+
+    this.tod = null;
 
     if (this.sceneBundle) {
       try {
@@ -375,51 +421,6 @@ export class Game {
     }
   }
 
-  private updateFoam(dt: number, fx: number, fz: number): void {
-    if (!this.boat || !this.foamGeo || !this.sceneBundle) return;
-    this.foamT += dt;
-    // Foam is a per-frame allocator hotspot — spawning a fresh mesh + material
-    // every 80ms (the prototype's rate) with MeshStandardMaterial caused
-    // visible jank. Spawn slower (every 150ms), shorter lifetime (0.9s), and
-    // use MeshBasicMaterial since foam doesn't need lighting.
-    const FOAM_SPAWN_INTERVAL = 0.15;
-    const FOAM_LIFETIME = 0.9;
-
-    if (Math.abs(this.speed) > 4 && this.foamT > FOAM_SPAWN_INTERVAL) {
-      this.foamT = 0;
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.7,
-        depthWrite: false,
-      });
-      const f = new THREE.Mesh(this.foamGeo, mat);
-      f.position.set(
-        this.boat.group.position.x - fx * 3,
-        0.35,
-        this.boat.group.position.z - fz * 3,
-      );
-      f.scale.setScalar(0.6);
-      this.sceneBundle.scene.add(f);
-      this.foams.push({ mesh: f, life: 0 });
-    }
-    // Age + cleanup.
-    for (let i = this.foams.length - 1; i >= 0; i--) {
-      const fo = this.foams[i];
-      fo.life += dt;
-      fo.mesh.scale.setScalar(0.6 + fo.life * 2.4);
-      (fo.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(
-        0,
-        0.7 * (1 - fo.life / FOAM_LIFETIME),
-      );
-      if (fo.life > FOAM_LIFETIME) {
-        this.sceneBundle.scene.remove(fo.mesh);
-        (fo.mesh.material as THREE.MeshBasicMaterial).dispose();
-        this.foams.splice(i, 1);
-      }
-    }
-  }
-
   // Autopilot home: returns input overrides until close enough to disengage.
   private autopilotInput(): { throttle: number; turn: number } | null {
     if (!this.autopilot || !this.boat || this.islands.length === 0) return null;
@@ -559,9 +560,9 @@ export class Game {
     }
 
     // Motion model from the prototype.
-    this.speed += throttle * 28 * dt;
+    this.speed += throttle * 40 * dt;
     this.speed *= 1 - 1.4 * dt;
-    this.speed = Math.max(-9, Math.min(23, this.speed));
+    this.speed = Math.max(-13, Math.min(34, this.speed));
     const moveFactor = Math.max(0.28, Math.min(1, Math.abs(this.speed) / 6));
     this.boatAngle -=
       turn * 1.9 * dt * moveFactor * (this.speed < 0 ? -1 : 1);
@@ -585,10 +586,38 @@ export class Game {
     model.rotation.x = Math.sin(t * 1.7) * bobAmt * 0.4 - this.speed * 0.004;
 
     this.water.update(dt);
+    this.tod?.update(dt);
 
-    for (const is of this.islands) is.tick?.(dt, t, this.reduced);
+    const nightAmount = this.tod?.nightAmount ?? 0;
+    for (const is of this.islands) is.tick?.(dt, t, this.reduced, nightAmount);
 
-    this.updateFoam(dt, fx, fz);
+    // Ambient seagulls — only during the day (nightAmount < ~0.5) and only
+    // when sound is on. Scheduler ticks regardless so calls don't bunch up.
+    this.gullTimer -= dt;
+    if (this.gullTimer <= 0) {
+      if (this.state.soundOn && nightAmount < 0.5) this.audio?.gull();
+      // Gulls call more often in bright daylight, sparsely toward dusk.
+      this.gullTimer = 4 + Math.random() * 7;
+    }
+
+    // ---- wake particles ----
+    // Spawn at a fixed real-time cadence while the boat is moving meaningfully.
+    if (this.wake) {
+      this.wakeT += dt;
+      const speedMag = Math.abs(this.speed);
+      if (speedMag > 3.5 && this.wakeT >= WAKE_SPAWN_INTERVAL) {
+        this.wakeT = 0;
+        this.wake.spawn(
+          boatGroup.position.x,
+          boatGroup.position.z,
+          fx,
+          fz,
+          speedMag,
+        );
+      }
+      this.wake.update(dt);
+    }
+
     this.updateClouds(dt);
     this.updateBirds(dt, t);
     this.updateLabels(t);
@@ -637,6 +666,7 @@ export class Game {
 
     this.drawMinimap();
 
+    // Single direct render — canvas MSAA + renderer ACES/sRGB do the rest.
     this.sceneBundle.renderer.render(this.sceneBundle.scene, camera);
     this.raf = requestAnimationFrame(this.animate);
   };

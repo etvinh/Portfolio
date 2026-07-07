@@ -11,6 +11,10 @@ export type Boat = {
   group: THREE.Group;
   model: THREE.Group;
   hullMat: THREE.MeshStandardMaterial;
+  // Stern lantern — emissive material + cast light, ramped on at dusk by the
+  // TimeOfDay controller (the boat's "night light").
+  lampMat: THREE.MeshStandardMaterial;
+  lampLight: THREE.PointLight;
 };
 
 export function createBoat(hullColor: string): Boat {
@@ -53,33 +57,70 @@ export function createBoat(hullColor: string): Boat {
   croof.position.set(0, 4.0, 1.1);
   model.add(croof);
 
-  const funnel = box(0.8, 1.4, 0.8, hullColor);
-  funnel.position.set(0, 4.6, 1.7);
-  model.add(funnel);
-
-  const fband = box(0.9, 0.3, 0.9, '#ffffff');
-  fband.position.set(0, 5.0, 1.7);
-  model.add(fband);
-
-  const mast = box(0.25, 4.0, 0.25, '#8a5a2b');
-  mast.position.set(0, 4.0, -0.9);
+  // ---- sailing rig ----
+  // Tall mast amidships. Sails are built from stacked boxes that taper toward
+  // the top so the voxel silhouette reads as a triangular sail instead of a
+  // slab. A slight roll on each panel suggests wind-fill.
+  const mast = box(0.3, 8.2, 0.3, '#8a5a2b');
+  mast.position.set(0, 5.6, -0.2);
   model.add(mast);
 
-  const boom = box(0.2, 0.2, 2.0, '#8a5a2b');
-  boom.position.set(0, 3.0, -0.9);
+  const boom = box(0.24, 0.24, 3.4, '#8a5a2b');
+  boom.position.set(0, 2.9, 0.6);
   model.add(boom);
 
-  const sail = box(0.22, 2.4, 1.9, '#ffffff', { roughness: 0.9 });
-  sail.position.set(0, 4.0, -0.9);
-  model.add(sail);
+  // Mainsail — three tapering panels stacked up the mast, aft of it.
+  const mainPanels: [number, number, number][] = [
+    // [centerY, height, depth(=fore-aft length)]
+    [3.5, 1.4, 3.0],
+    [4.9, 1.4, 2.2],
+    [6.2, 1.3, 1.3],
+  ];
+  mainPanels.forEach(([py, hh, dd]) => {
+    const s = box(0.16, hh, dd, '#ffffff', { roughness: 0.9 });
+    s.position.set(0, py, 0.6 + (3.0 - dd) * 0.25);
+    s.rotation.x = 0.06; // gentle wind-fill curve
+    model.add(s);
+  });
 
-  const jib = box(0.2, 1.5, 1.1, '#ffe3c2', { roughness: 0.9 });
-  jib.position.set(0, 3.4, -1.7);
-  model.add(jib);
+  // Jib — smaller foresail forward of the mast.
+  const jibPanels: [number, number, number][] = [
+    [3.2, 1.3, 1.7],
+    [4.3, 1.2, 1.0],
+  ];
+  jibPanels.forEach(([py, hh, dd]) => {
+    const j = box(0.14, hh, dd, '#ffe3c2', { roughness: 0.9 });
+    j.position.set(0, py, -1.7 - (1.7 - dd) * 0.3);
+    model.add(j);
+  });
+
+  // Forestay-ish bowsprit so the jib has something to hang off.
+  const sprit = box(0.16, 0.16, 1.2, '#8a5a2b');
+  sprit.position.set(0, 2.55, -2.6);
+  model.add(sprit);
 
   const flag = box(0.1, 0.7, 0.9, hullColor);
-  flag.position.set(0, 5.7, -0.45);
+  flag.position.set(0, 9.4, -0.05);
   model.add(flag);
+
+  // ---- stern night lantern (the boat's night light) ----
+  const lampPost = box(0.12, 1.0, 0.12, '#5c3a1e');
+  lampPost.position.set(0, 2.95, 2.3);
+  model.add(lampPost);
+  const lampMat = M('#ffe066', {
+    emissive: new THREE.Color('#ffd166'),
+    emissiveIntensity: 0.05, // ramped up at dusk by TimeOfDay
+    roughness: 0.4,
+  });
+  const lantern = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.6, 0.42), lampMat);
+  lantern.position.set(0, 3.65, 2.3);
+  model.add(lantern);
+  const lampCap = box(0.52, 0.14, 0.52, '#3a2410');
+  lampCap.position.set(0, 4.02, 2.3);
+  model.add(lampCap);
+  const lampLight = new THREE.PointLight(0xffd166, 0.0, 26, 1.8);
+  lampLight.position.set(0, 3.65, 2.3);
+  model.add(lampLight);
 
   // porthole lights, ring lifebuoys, railings
   [-1.78, 1.78].forEach((sx) => {
@@ -135,5 +176,5 @@ export function createBoat(hullColor: string): Boat {
   // prototype's util surface, even though boat itself doesn't call it.
   void cyl;
 
-  return { group, model, hullMat };
+  return { group, model, hullMat, lampMat, lampLight };
 }

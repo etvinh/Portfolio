@@ -8,12 +8,16 @@ import { mulberry32 } from '../rng';
 
 export type Collider = { x: number; z: number; r: number };
 
+// Foam emitters fed to the water shader's per-rock "waves crashing on rocks"
+// loop. World-space x/z + a radius that controls splash spread.
+export type FoamRock = { x: number; z: number; radius: number };
+
 export type BuildHelpers = Primitives & { radius: number };
 
 // Builders may return a per-frame ticker (e.g. socials' rotating lighthouse
 // beam). Most islands have no tick — they're static after build.
 export type IslandExtras = {
-  tick?: (dt: number, t: number, reduced: boolean) => void;
+  tick?: (dt: number, t: number, reduced: boolean, nightAmount: number) => void;
 };
 
 export type IslandDef = {
@@ -40,21 +44,31 @@ export type Island = {
   group: THREE.Group;
   collR: number;
   colliders: Collider[];
+  // World-space rock positions surfaced for the water shader's per-rock
+  // splash foam. Built from each island's perimeter rocks.
+  rocks: FoamRock[];
+  // Dock-lamp emissive materials (kept here so the TimeOfDay controller can
+  // ramp emissive intensity up at dusk).
+  lampMaterials: THREE.MeshStandardMaterial[];
+  lampPointLights: THREE.PointLight[];
   label: THREE.Sprite;
   labelY: number;
-  tick?: (dt: number, t: number, reduced: boolean) => void;
+  tick?: (dt: number, t: number, reduced: boolean, nightAmount: number) => void;
 };
 
 // Build irregular voxel "lumps" that form the coastline. Returns the lump
-// rectangles so the caller can derive circle colliders matching the actual
-// land outline (rather than one giant circle).
+// rectangles AND the local-space perimeter rock positions so the caller can
+// derive both circle colliders and per-rock foam emitters from the same RNG.
 function makeLand(
   g: THREE.Group,
   radius: number,
   grassCol: string | undefined,
   beachCol: string | undefined,
   seed: number,
-): Array<[number, number, number, number]> {
+): {
+  lumps: Array<[number, number, number, number]>;
+  rocks: Array<[number, number, number]>; // local x, z, half-extent
+} {
   const rnd = mulberry32(seed);
   const beach = beachCol || '#e7c98a';
   const grass = grassCol || '#51cf66';
@@ -113,22 +127,24 @@ function makeLand(
     mound.position.set(mx, 3.4, mz);
     g.add(mound);
   }
-  // perimeter rocks
-  for (let i = 0; i < 3; i++) {
+  // perimeter rocks — record positions so callers can feed them to the
+  // water shader as per-rock foam emitters.
+  const rocks: Array<[number, number, number]> = [];
+  for (let i = 0; i < 5; i++) {
     const a = rnd() * 6.28;
     const rr = radius * (0.98 + rnd() * 0.3);
-    const rk = box(
-      1.4 + rnd() * 1.3,
-      1.3,
-      1.4 + rnd() * 1.3,
-      i % 2 ? '#7d8488' : '#929a9e',
-    );
-    rk.position.set(Math.cos(a) * rr, 1.0, Math.sin(a) * rr);
+    const w = 1.4 + rnd() * 1.3;
+    const d2 = 1.4 + rnd() * 1.3;
+    const rk = box(w, 1.3, d2, i % 2 ? '#7d8488' : '#929a9e');
+    const rx = Math.cos(a) * rr;
+    const rz = Math.sin(a) * rr;
+    rk.position.set(rx, 1.0, rz);
     rk.rotation.y = rnd();
     g.add(rk);
+    rocks.push([rx, rz, Math.max(w, d2) * 0.5 + 1.2]);
   }
 
-  return lumps;
+  return { lumps, rocks };
 }
 
 // Length of the wooden pier in cv units, from the coast outward. The dock
@@ -139,9 +155,17 @@ function makeLand(
 const PIER_LENGTH = 15;
 
 // Wooden pier pointing back at the spawn point. Adds deck, slats, posts,
-// bollards, and a rope coil. Returns nothing — caller derives pier
-// colliders from the dock direction + radius.
-function buildPier(g: THREE.Group, dir: THREE.Vector3, radius: number): void {
+// bollards, a rope coil, and a pair of glowing lanterns at the dock head.
+// Returns the lantern materials + point lights so the TimeOfDay controller
+// can ramp them on at dusk.
+function buildPier(
+  g: THREE.Group,
+  dir: THREE.Vector3,
+  radius: number,
+): {
+  lampMaterials: THREE.MeshStandardMaterial[];
+  lampPointLights: THREE.PointLight[];
+} {
   const dockGroup = new THREE.Group();
   dockGroup.rotation.y = Math.atan2(dir.x, dir.z);
   const L = PIER_LENGTH;
@@ -177,7 +201,45 @@ function buildPier(g: THREE.Group, dir: THREE.Vector3, radius: number): void {
   coilD.position.set(1.9, 2.05, startZ + 3);
   dockGroup.add(coilD);
 
+  // ---- Day/night dock lanterns ----
+  // Two lanterns, one on each side of the dock head. Each has an emissive
+  // box and a small PointLight cast onto the wood. The controller ramps
+  // emissiveIntensity + PointLight.intensity at dusk.
+  const lampMaterials: THREE.MeshStandardMaterial[] = [];
+  const lampPointLights: THREE.PointLight[] = [];
+  const lanternZ = startZ + L - 1.2;
+  [-2.0, 2.0].forEach((sx) => {
+    const arm = box(0.18, 1.6, 0.18, '#3a2410');
+    arm.position.set(sx, 4.7, lanternZ);
+    dockGroup.add(arm);
+
+    const yoke = box(0.5, 0.18, 0.18, '#3a2410');
+    yoke.position.set(sx, 5.4, lanternZ);
+    dockGroup.add(yoke);
+
+    const headMat = M('#ffe066', {
+      emissive: new THREE.Color('#ffd166'),
+      emissiveIntensity: 0.05,
+      roughness: 0.4,
+    });
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.85, 0.6), headMat);
+    head.position.set(sx, 5.0, lanternZ);
+    head.castShadow = false;
+    dockGroup.add(head);
+    lampMaterials.push(headMat);
+
+    const cap = box(0.7, 0.18, 0.7, '#3a2410');
+    cap.position.set(sx, 5.55, lanternZ);
+    dockGroup.add(cap);
+
+    const pl = new THREE.PointLight(0xffd166, 0.0, 22, 1.7);
+    pl.position.set(sx, 5.0, lanternZ);
+    dockGroup.add(pl);
+    lampPointLights.push(pl);
+  });
+
   g.add(dockGroup);
+  return { lampMaterials, lampPointLights };
 }
 
 // Floating island-name sprite. Canvas-2D'd so we can use the Baloo 2 font
@@ -231,7 +293,7 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
   const g = new THREE.Group();
   g.position.set(def.x, 0, def.z);
   const seed = Math.abs(Math.floor(def.x * 73.7 + def.z * 19.3)) + 7;
-  const lumps = makeLand(g, def.radius, def.grass, def.beach, seed);
+  const { lumps, rocks: localRocks } = makeLand(g, def.radius, def.grass, def.beach, seed);
 
   const extras = def.build(g, { ...primitives, radius: def.radius }) ?? undefined;
   scene.add(g);
@@ -242,14 +304,12 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
   cv.y = 0;
   cv.normalize();
 
-  // Dock anchored at the FAR end of the pier (open-sea side). Previously it
-  // sat at radius+6, mid-deck — which left the open-sea half of the pier
-  // unguarded and the boat would phase through it on approach.
+  // Dock anchored at the FAR end of the pier (open-sea side).
   const startD = def.radius * 0.72;
   const dockD = startD + PIER_LENGTH;
   const dock = new THREE.Vector3(def.x + cv.x * dockD, 0, def.z + cv.z * dockD);
 
-  buildPier(g, cv, def.radius);
+  const pier = buildPier(g, cv, def.radius);
 
   const labelY = def.labelY ?? def.radius + 12;
   const label = makeLabel(def.title, def.mini);
@@ -257,11 +317,6 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
   scene.add(label);
 
   // Per-lump circle colliders + circles down the pier.
-  //
-  // Pier colliders run from just past the coast to within 5 units of the
-  // dock-tip — 5 ≈ boat-radius (2.8) + collider-radius (2.2). That leaves
-  // exactly enough room for the boat to nose into the dock without bumping,
-  // while blocking the boat from sailing onto the pier deck from any angle.
   const colliders: Collider[] = [];
   lumps.forEach(([lx, lz, lw, ld]) => {
     const r = Math.max(lw, ld) * 0.5 * 0.9;
@@ -271,6 +326,13 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
   for (let d = startD + 1; d <= dockD - endGap; d += 2.4) {
     colliders.push({ x: def.x + cv.x * d, z: def.z + cv.z * d, r: 2.2 });
   }
+
+  // Translate local rock positions into world space + budget.
+  const rocks: FoamRock[] = localRocks.map(([rx, rz, rr]) => ({
+    x: def.x + rx,
+    z: def.z + rz,
+    radius: rr,
+  }));
 
   return {
     id: def.id,
@@ -282,6 +344,9 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
     group: g,
     collR: def.radius * 1.7,
     colliders,
+    rocks,
+    lampMaterials: pier.lampMaterials,
+    lampPointLights: pier.lampPointLights,
     label,
     labelY,
     tick: extras?.tick,

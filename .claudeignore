@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+.next/
+coverage/
+
+# Lockfiles (large, low signal)
+package-lock.json
+
+# Generated/build artifacts
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs
+*.log
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

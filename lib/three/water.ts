@@ -5,23 +5,37 @@ import * as THREE from 'three';
 // Layers:
 //   1. Subtle vertex displacement (3 traveling sin waves) so the surface
 //      visibly rolls without rising above the boat's keel (y = 0.5).
-//   2. Flat sea-color fragment base with a slight horizon-depth tint.
+//   2. Sea-color fragment base with horizon haze (gradient toward a tinted
+//      "atmosphere" color far from the camera — NO THREE.Fog, this is a
+//      direction-aware in-shader replacement).
 //   3. ONE animated squiggly white line layer (single direction).
-//   4. NEW: per-island shoreline foam — a sin wave radiating outward from
-//      each island, masked to a ~8-unit band around its coastline.
-//      Gives the "waves crashing on the shore" pulse.
-//   5. Slightly transparent surface + opaque deep plane below, so the
-//      submerged half of each beach is faintly visible at the shore.
+//   4. Per-island shoreline foam — sin wave radiating outward from each
+//      island, masked to a ~8-unit band around its coastline, plus a noise
+//      modulation so breakers look uneven rather than perfectly concentric.
+//   5. Foam tint + night-darken uniforms come from the TimeOfDay controller,
+//      so the same shader handles day, dusk, and night without re-compiles.
+//   6. Slightly transparent surface + opaque deep plane below.
 
-// Fixed-size GLSL array — accommodates the current 5 islands + room for
-// the planned Observatory + Race Cove additions in later chunks.
+// Fixed-size GLSL array — accommodates the current islands + room for the
+// planned Observatory + Race Cove additions.
 const MAX_ISLANDS = 8;
 
 export type IslandRef = { x: number; z: number; radius: number };
 
+export type WaterUniforms = {
+  uTime: { value: number };
+  uSea: { value: THREE.Color };
+  uHorizonHaze: { value: THREE.Color };
+  uFoamTint: { value: THREE.Color };
+  uNightAmount: { value: number };
+  uIslands: { value: THREE.Vector3[] };
+  uIslandCount: { value: number };
+};
+
 export type Water = {
   mesh: THREE.Mesh;
   deep: THREE.Mesh;
+  uniforms: WaterUniforms;
   update: (dt: number) => void;
 };
 
@@ -30,21 +44,21 @@ export function createWater(
   reducedMotion: boolean,
   islands: IslandRef[],
 ): Water {
-  // 200x200 segments over a 2600-unit plane = ~13 units/segment. Keep wave
-  // wavelengths longer than that to avoid aliasing.
-  const geo = new THREE.PlaneGeometry(2600, 2600, 200, 200);
+  // 160x160 segments over a 2600-unit plane = ~16 units/segment — still
+  // comfortably under the shortest wave wavelength (~45 units, k=0.14), and
+  // ~35% fewer vertices than the previous 200x200 mesh.
+  const geo = new THREE.PlaneGeometry(2600, 2600, 160, 160);
   geo.rotateX(-Math.PI / 2);
 
   const mat = new THREE.MeshBasicMaterial({
     color: new THREE.Color(seaColor),
-    fog: true,
+    fog: false,
     transparent: true,
-    opacity: 0.86,
+    opacity: 0.9,
     depthWrite: true,
   });
 
-  // Pack islands as vec3 (x, z, radius). Padded out to MAX_ISLANDS so the
-  // GLSL fixed-size array always has defined values.
+  // Pack islands as vec3 (x, z, radius). Padded to MAX_ISLANDS.
   const islandUniform: THREE.Vector3[] = Array.from({ length: MAX_ISLANDS }, () =>
     new THREE.Vector3(0, 0, 0),
   );
@@ -52,9 +66,12 @@ export function createWater(
     islandUniform[i].set(isle.x, isle.z, isle.radius);
   });
 
-  const uniforms = {
+  const uniforms: WaterUniforms = {
     uTime: { value: 0 },
     uSea: { value: new THREE.Color(seaColor) },
+    uHorizonHaze: { value: new THREE.Color('#cfe2f5') },
+    uFoamTint: { value: new THREE.Color('#ffffff') },
+    uNightAmount: { value: 0 },
     uIslands: { value: islandUniform },
     uIslandCount: { value: Math.min(islands.length, MAX_ISLANDS) },
   };
@@ -64,6 +81,9 @@ export function createWater(
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uniforms.uTime;
     shader.uniforms.uSea = uniforms.uSea;
+    shader.uniforms.uHorizonHaze = uniforms.uHorizonHaze;
+    shader.uniforms.uFoamTint = uniforms.uFoamTint;
+    shader.uniforms.uNightAmount = uniforms.uNightAmount;
     shader.uniforms.uIslands = uniforms.uIslands;
     shader.uniforms.uIslandCount = uniforms.uIslandCount;
 
@@ -90,6 +110,9 @@ export function createWater(
     shader.fragmentShader =
       `uniform float uTime;
        uniform vec3 uSea;
+       uniform vec3 uHorizonHaze;
+       uniform vec3 uFoamTint;
+       uniform float uNightAmount;
        uniform vec3 uIslands[${MAX_ISLANDS}];
        uniform int uIslandCount;
        varying vec2 vXZ;
@@ -99,6 +122,19 @@ export function createWater(
        float hash21(vec2 v) {
          return fract(sin(dot(v, vec2(127.1, 311.7))) * 43758.5453);
        }
+
+       // 2D value noise — used to break up the coastal foam ring so it looks
+       // like discrete crashing waves rather than a smooth concentric pulse.
+       float noise2(vec2 p) {
+         vec2 i = floor(p);
+         vec2 f = fract(p);
+         float a = hash21(i);
+         float b = hash21(i + vec2(1.0, 0.0));
+         float c = hash21(i + vec2(0.0, 1.0));
+         float d = hash21(i + vec2(1.0, 1.0));
+         vec2 u = f * f * (3.0 - 2.0 * f);
+         return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+       }
       ` + shader.fragmentShader;
 
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -107,72 +143,73 @@ export function createWater(
        vec3 col = uSea;
 
        // ---- evenly spaced squiggle marks (cell-based) ----
-       // Divide the surface into cells; EVERY cell gets a squiggle so the
-       // spacing is regular. Each cell's phase is randomized so the marks
-       // don't all line up identically. The whole field drifts with time.
        vec2 p = vXZ + vec2(uTime * 0.9, uTime * 0.4);
-       // Asymmetric cell — wider horizontally than vertically so marks are
-       // spaced further apart left-to-right without changing their length
-       // or top-to-bottom spacing.
        vec2 cellSize = vec2(60.0, 42.0);
        vec2 cell  = floor(p / cellSize);
-
-       // Per-cell position jitter — shifts each mark a small amount away
-       // from the cell center so the marks don't form a perfect grid.
        vec2 jitter = vec2(
          hash21(cell + vec2(5.0, 7.0)),
          hash21(cell + vec2(13.0, 19.0))
        ) - 0.5;
-
        vec2 cellLocal = fract(p / cellSize) - 0.5 - jitter * 0.20;
-       // Stretch local.x by aspect ratio. The mark-drawing math below uses
-       // a square span (abs r.x < 0.42), so a non-square cellLocal would
-       // distort the mark. Rescaling here keeps mark length proportional
-       // to cellSize.y — only the horizontal cell spacing changes.
        vec2 local = vec2(cellLocal.x * cellSize.x / cellSize.y, cellLocal.y);
-
-       // Constant angle — every squiggle points the same direction.
        float ang   = 0.3;
        float phase = hash21(cell + vec2(11.0, 23.0)) * 6.2831;
-
        float sa = sin(ang), ca = cos(ang);
        vec2 r = vec2(local.x * ca + local.y * sa, -local.x * sa + local.y * ca);
-
-       // mark shape: r.y stays close to a sin curve along r.x.
-       // Higher frequency (10) + slightly bigger amplitude = visibly wavy.
        float curveY = sin(r.x * 10.0 + phase + uTime * 0.7) * 0.07;
        float distToCurve = abs(r.y - curveY);
-       // Tighter threshold = thinner line.
        float onMark     = smoothstep(0.024, 0.010, distToCurve);
-       // Long mark spanning almost the whole cell.
        float withinSpan = smoothstep(0.48, 0.42, abs(r.x));
-
        float squiggles = onMark * withinSpan;
-       col = mix(col, vec3(1.0), squiggles * 0.28);
+       // Squiggle highlight color = foam tint (matches the breaker color);
+       // at night, foam tint darkens automatically via TimeOfDay.
+       col = mix(col, uFoamTint, squiggles * 0.26);
 
        // ---- shoreline foam: waves crashing into the islands ----
        // For each island, compute a sin pulse traveling outward from its
-       // center. Mask to within a thin ring around the coastline so the
-       // foam reads as breakers rather than concentric ripples.
+       // center, masked to a thin ring around the coastline, with noise
+       // modulation so the foam reads as discrete breakers.
        float foam = 0.0;
        for (int i = 0; i < ${MAX_ISLANDS}; i++) {
          if (i >= uIslandCount) break;
          vec3 isle = uIslands[i];
-         float distToCenter = length(vXZ - vec2(isle.x, isle.y));
-         // pulse radiates outward from the island center; coast is at isle.z
-         float pulse = sin(uTime * 1.8 - distToCenter * 0.45);
-         // mask: only within ~7 units of the coastline (either side)
-         float coastBand = smoothstep(7.0, 0.0, abs(distToCenter - isle.z));
-         foam = max(foam, pulse * coastBand);
+         vec2 off = vXZ - vec2(isle.x, isle.y);
+         float distToCenter = length(off);
+         float angleAround = atan(off.y, off.x);
+         // Two pulses out of phase + a third faster ripple — looks more like
+         // sea swell hitting the shore than a single radiating ring.
+         float pulseA = sin(uTime * 1.6 - distToCenter * 0.42);
+         float pulseB = sin(uTime * 0.95 - distToCenter * 0.28 + 1.3);
+         float pulseC = sin(uTime * 2.5 - distToCenter * 0.6 + angleAround * 2.0);
+         float pulse = pulseA * 0.55 + pulseB * 0.35 + pulseC * 0.25;
+         // Mask: within ~8 units of the coastline (either side).
+         float coastBand = smoothstep(8.0, 0.0, abs(distToCenter - isle.z));
+         // Per-angle noise so each "breaker" along the coast is uneven.
+         float n = noise2(vec2(angleAround * 3.0 + uTime * 0.4, isle.z * 0.1));
+         float crest = pulse * (0.55 + 0.6 * n);
+         foam = max(foam, crest * coastBand);
        }
-       // keep only the bright crests so foam looks like discrete breakers
-       foam = smoothstep(0.35, 0.95, foam);
-       col = mix(col, vec3(1.0), foam * 0.55);
+       // Keep only the bright crests so foam looks like discrete breakers.
+       float islandFoam = smoothstep(0.30, 0.95, foam);
 
-       // ---- horizon depth tint (subtle) ----
-       vec3 deepTint = uSea * 0.5;
-       float depthMix = smoothstep(60.0, 500.0, length(vXZ)) * 0.35;
-       col = mix(col, deepTint, depthMix);
+       // (Per-rock foam splashes were cut for performance: a 32-iteration
+       // loop with atan + noise per fragment over the biggest surface on
+       // screen. The shoreline foam above carries the "waves on the coast"
+       // read on its own.)
+       float foamMask = islandFoam;
+       col = mix(col, uFoamTint, foamMask * 0.6);
+
+       // ---- atmospheric haze toward horizon ----
+       // Distance-based blend from sea color to the horizon-haze color (the
+       // same color the sky's horizon band uses). Replaces THREE.Fog with a
+       // direction-aware shader gradient that the TimeOfDay controller
+       // retints every frame.
+       float hazeT = smoothstep(80.0, 620.0, length(vXZ));
+       col = mix(col, uHorizonHaze, hazeT * 0.7);
+
+       // Night darken: when uNightAmount climbs, deepen everything that isn't
+       // pure foam. Keeps the breakers visible against a darker sea.
+       col *= mix(1.0, 0.55, uNightAmount * (1.0 - foamMask));
 
        diffuseColor.rgb = col;`,
     );
@@ -183,13 +220,13 @@ export function createWater(
   // ---- DEEP PLANE ----
   // Backstop a few units below the surface so the slightly-transparent
   // surface composites against a darker sea tone (rather than the sky)
-  // when looking straight down. Submerged half of each beach still shows
-  // through the surface; deeper geometry is hidden by this plane.
+  // when looking straight down. Tinted from the time-of-day sea color via
+  // a small uniform; we just dim a multiplier here.
   const deepGeo = new THREE.PlaneGeometry(2600, 2600);
   deepGeo.rotateX(-Math.PI / 2);
   const deepMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color('#062a48'),
-    fog: true,
+    fog: false,
   });
   const deep = new THREE.Mesh(deepGeo, deepMat);
   deep.position.y = -3;
@@ -197,6 +234,7 @@ export function createWater(
   return {
     mesh,
     deep,
+    uniforms,
     update: (dt: number) => {
       uniforms.uTime.value += dt;
     },

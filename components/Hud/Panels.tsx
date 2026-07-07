@@ -197,6 +197,25 @@ function HomePanel({ onClose }: PanelProps) {
           WASD / arrows to sail · press E to dock · &ldquo;Sail home&rdquo; if you
           get lost.
         </div>
+        <div
+          style={{
+            marginTop: 14,
+            fontSize: 12,
+            fontWeight: 700,
+            color: '#8696a3',
+            textAlign: 'center',
+          }}
+        >
+          Made with Three.js · Inspired by{' '}
+          <a
+            href="https://bruno-simon.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#1c7ed6', textDecoration: 'none' }}
+          >
+            Bruno Simon ↗
+          </a>
+        </div>
       </div>
     </PanelShell>
   );
@@ -294,7 +313,7 @@ const PROJECT_TABS: ProjectTab[] = [
     label: 'KitGrail',
     title: 'KitGrail',
     description:
-      'Full-stack marketplace for vintage soccer jerseys with separate admin and seller apps. Built with Next.js, React, GraphQL, and PostgreSQL; Stripe for payments, Google OAuth for authentication; deployed on AWS.',
+      'Full-stack marketplace for vintage soccer jerseys, split into three purpose-built surfaces: a shopper storefront for browsing and checkout, a seller app for listing and inventory management, and an admin console for moderation and catalog oversight. A GraphQL API sits over a normalized PostgreSQL schema; Stripe handles payments and webhooks, and Google OAuth handles authentication. The whole system is deployed on AWS. Built with Next.js and React on the front end, with a shared component and type layer across all three apps.',
     techTags: [
       { label: 'Next.js', color: '#fff', bg: '#1d2b36', shadow: '#0b1117' },
       { label: 'GraphQL', color: '#fff', bg: '#e535ab', shadow: '#a01f7a' },
@@ -315,12 +334,19 @@ const PROJECT_TABS: ProjectTab[] = [
     label: 'SafeFlex',
     title: 'SafeFlex',
     description:
-      'A wearable for post-surgical physical therapy that validates rep form in real time from sensor data. CruzHacks 2026 prototype built with a team of four (FastAPI + vanilla JS); second prototype in Swift/SwiftUI adds Bluetooth + iOS integration. Awarded university funding to develop the second prototype after competing against 100+ teams.',
+      "iOS rehab companion for a custom ESP32 wearable that tracks physical-therapy exercises in real time. Flex and IMU sensor data streams over WebSocket to a SwiftUI app that counts reps, scores range of motion and stability, and visualizes weekly progress, performance, and plan adherence. Includes AI-assisted onboarding that turns a user's pain description into a personalized exercise plan. Built with SwiftUI (MVVM, feature-first architecture) and Supabase (Postgres, auth, row-level security), with embedded C++ firmware. Began as a CruzHacks 2026 prototype (team of four) and earned university funding to build the second prototype after competing against 100+ teams.",
     techTags: [
-      { label: 'FastAPI', color: '#fff', bg: '#009688', shadow: '#00695c' },
       { label: 'SwiftUI', color: '#fff', bg: '#fa7343', shadow: '#a83a14' },
-      { label: 'Bluetooth', color: '#fff', bg: '#0082fc', shadow: '#0057a8' },
+      { label: 'ESP32 / C++', color: '#fff', bg: '#e7352c', shadow: '#a01f18' },
+      { label: 'WebSocket', color: '#fff', bg: '#0082fc', shadow: '#0057a8' },
+      { label: 'Supabase', color: '#fff', bg: '#3ecf8e', shadow: '#249d68' },
       { label: 'iOS', color: '#fff', bg: '#1d2b36', shadow: '#0b1117' },
+    ],
+    gallery: [
+      { src: '/Safeflex1.png' },
+      { src: '/Safeflex2.png' },
+      { src: '/Safeflex3.png' },
+      { src: '/Safeflex4.png' },
     ],
     repoHref: 'https://github.com/ServeshKarnawat/CruzHacks2026',
     altHref: 'https://devpost.com/software/safeflex',
@@ -333,7 +359,7 @@ const PROJECT_TABS: ProjectTab[] = [
     label: 'MPTGT',
     title: 'Monty Python Trained Generative Transformer',
     description:
-      'A generative transformer trained to write Monty Python: Holy Grail script, built in PyTorch and TensorFlow. Implemented self-attention from scratch with aggregated weight matrices; optimized inference for Apple M2 Silicon and tuned the temperature hyperparameter for output coherence.',
+      "A decoder-only, GPT-style generative transformer trained to write in the voice of Monty Python and the Holy Grail, built from scratch in PyTorch and TensorFlow. The architecture follows Andrej Karpathy's \"Let's build GPT\" — character-level tokenization, multi-head self-attention, positional embeddings, residual connections, and layer normalization — implemented by hand rather than pulled from a library, with the attention head's key/query/value projections aggregated into batched weight matrices for efficiency. Trained on the film's screenplay, with inference optimized for Apple M2 silicon and the sampling temperature tuned to balance coherence against comedic surprise.",
     techTags: [
       { label: 'Python', color: '#fff', bg: '#3776ab', shadow: '#1d4d6e' },
       { label: 'PyTorch', color: '#fff', bg: '#ee4c2c', shadow: '#a8341d' },

@@ -13,11 +13,18 @@ THREE.ColorManagement.enabled = false;
 
 // Scene + camera + renderer + lights. Pure setup, returns the handles the
 // game loop needs. Caller mounts renderer.domElement and drives animate().
+//
+// Note: no THREE.Fog. The horizon look is owned by the sky-dome shader and
+// the water-surface "atmospheric haze" gradient — those are direction- and
+// distance-aware in a way that built-in Fog isn't, and they let the time-of-
+// day controller retint the horizon without juggling fog/Color references.
 export type SceneBundle = {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   sun: THREE.DirectionalLight;
+  hemi: THREE.HemisphereLight;
+  ambient: THREE.AmbientLight;
 };
 
 export function createSceneBundle(
@@ -26,7 +33,7 @@ export function createSceneBundle(
 ): SceneBundle | null {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(skyColor);
-  scene.fog = new THREE.Fog(new THREE.Color('#5a7a9e'), 200, 540);
+  // Deliberately no scene.fog — see file header.
 
   const camera = new THREE.PerspectiveCamera(
     30,
@@ -47,7 +54,12 @@ export function createSceneBundle(
     return null;
   }
 
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  // Cap pixel ratio at 1.25: every post-processing full-screen pass (MSAA
+  // resolve, bloom mip blurs, output) scales with DPR², so 2.0 → 1.25 cuts
+  // roughly 60% of the per-frame pixel work on Retina displays for a barely
+  // perceptible sharpness change on this cartoon art (4× MSAA still keeps
+  // edges clean).
+  renderer.setPixelRatio(Math.min(1.25, window.devicePixelRatio || 1));
   renderer.setSize(mountEl.clientWidth, mountEl.clientHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -62,12 +74,18 @@ export function createSceneBundle(
   mountEl.appendChild(renderer.domElement);
 
   // Moody late-afternoon lighting from the prototype.
-  scene.add(new THREE.HemisphereLight(0x8aa6c8, 0x4a5538, 0.42));
-  scene.add(new THREE.AmbientLight(0x6678a0, 0.12));
+  // The TimeOfDay controller later re-tints these every frame; the values
+  // here are just sensible defaults so the first frame isn't flat.
+  const hemi = new THREE.HemisphereLight(0x8aa6c8, 0x4a5538, 0.42);
+  scene.add(hemi);
+  const ambient = new THREE.AmbientLight(0x6678a0, 0.12);
+  scene.add(ambient);
   const sun = new THREE.DirectionalLight(0xffe6c2, 0.72);
   sun.position.set(60, 110, 40);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  // 1024 is plenty for soft voxel shadows at this camera distance; 2048
+  // quadruples the shadow-pass fill cost for no visible gain here.
+  sun.shadow.mapSize.set(1024, 1024);
   const sc = sun.shadow.camera;
   sc.left = -220;
   sc.right = 220;
@@ -78,5 +96,5 @@ export function createSceneBundle(
   sun.shadow.bias = -0.0004;
   scene.add(sun);
 
-  return { scene, camera, renderer, sun };
+  return { scene, camera, renderer, sun, hemi, ambient };
 }
