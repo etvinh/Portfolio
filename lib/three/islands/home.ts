@@ -5,8 +5,9 @@ export const homeIsland: IslandDef = {
   id: 'home',
   title: 'Home Harbor',
   panel: 'home',
+  // Center of the archipelago — the other islands ring Home Harbor.
   x: 0,
-  z: 12,
+  z: 0,
   radius: 16,
   mini: '#37b24d',
   grass: '#51cf66',

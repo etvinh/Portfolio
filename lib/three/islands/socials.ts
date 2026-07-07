@@ -7,12 +7,13 @@ export const socialsIsland: IslandDef = {
   id: 'socials',
   title: 'Contact',
   panel: 'socials',
-  x: -82,
-  z: -28,
+  // West of Home Harbor.
+  x: -90,
+  z: -35,
   radius: 11,
   mini: '#fa5252',
   grass: '#69db7c',
-  labelY: 24,
+  labelY: 21, // just clears the lighthouse roof (~y=18)
   build: (g, h) => {
     const t1 = h.box(4.6, 10, 4.6, '#ffffff');
     t1.position.y = 7.0;

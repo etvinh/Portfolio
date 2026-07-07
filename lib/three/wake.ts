@@ -106,17 +106,19 @@ export function createWake(reducedMotion: boolean): Wake {
       varying float vT;
       varying float vSeed;
       void main() {
+        // Ripple, not a circle: squash the point vertically so it reads as a
+        // flat disturbance lying on the water, then draw thin concentric
+        // bands expanding outward over the particle's life.
         vec2 d = gl_PointCoord - vec2(0.5);
+        d.y *= 2.6; // flatten
         float r = length(d) * 2.0;
         if (r > 1.0) discard;
-        // Soft circle base + brighter outer ring; older particles are mostly ring.
-        float core = smoothstep(1.0, 0.0, r) * (1.0 - vT * 0.7);
-        float ringW = mix(0.22, 0.42, vT);
-        float ringPos = mix(0.45, 0.78, vT);
-        float ring = smoothstep(ringPos - ringW, ringPos, r) -
-                     smoothstep(ringPos, ringPos + 0.18, r);
-        float a = max(core * 0.6, ring * 1.0);
-        // Slight per-particle hue jitter — keeps it from looking uniform.
+        // Expanding thin ripple lines; per-particle phase so neighbors differ.
+        float bands = 0.5 + 0.5 * sin(r * 12.0 - vT * 7.0 + vSeed * 6.28);
+        bands = pow(bands, 3.0); // sharpen into lines
+        // Fade toward the rim and soften the center.
+        float fade = (1.0 - smoothstep(0.55, 1.0, r)) * smoothstep(0.0, 0.18, r);
+        float a = bands * fade;
         vec3 col = uTint * (1.0 - vSeed * 0.08);
         gl_FragColor = vec4(col, a * vAlpha);
       }

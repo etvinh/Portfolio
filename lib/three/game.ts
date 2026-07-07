@@ -72,7 +72,6 @@ export class Game {
   private boatAngle = 0;
   private cameraLook = new THREE.Vector3(0, 1.5, 0);
   private reduced = false;
-  private autopilot = false;
   // Tracked separately from state so we don't emit when the nearest
   // island hasn't changed (avoids re-render storms on every frame).
   private promptId = '_none_';
@@ -82,9 +81,19 @@ export class Game {
   // Countdown (seconds) to the next ambient seagull cry — only fires in
   // daylight while sound is on. Reset to a random gap after each call.
   private gullTimer = 3;
+  // One-shot listener that starts the (default-on) audio at the first user
+  // gesture, since browsers gate AudioContext behind interaction.
+  private unlockAudio: (() => void) | null = null;
+
+  private removeUnlockListeners(): void {
+    if (!this.unlockAudio) return;
+    window.removeEventListener('pointerdown', this.unlockAudio);
+    window.removeEventListener('keydown', this.unlockAudio);
+    this.unlockAudio = null;
+  }
 
   private state: GameState = {
-    soundOn: false,
+    soundOn: true, // actual AudioContext unlocks on first user gesture
     isMobile: false,
     dockTarget: null,
     activePanel: null,
@@ -187,7 +196,7 @@ export class Game {
         lampPointLights,
         lampPointBaseIntensities,
       },
-      0.4, // start mid-morning so the player lands in daylight
+      0.45, // start at the noon keyframe — brightest first impression
     );
 
     // ---- load saved achievements ----
@@ -241,6 +250,16 @@ export class Game {
     bundle.renderer.domElement.addEventListener('pointerdown', focusStage);
     focusStage();
 
+    // Sound defaults ON, but browsers refuse to run an AudioContext until a
+    // user gesture — unlock on the first pointer/key input. If the user
+    // toggled sound off before ever interacting, this no-ops.
+    this.unlockAudio = () => {
+      if (this.state.soundOn) this.audio?.setOn(true);
+      this.removeUnlockListeners();
+    };
+    window.addEventListener('pointerdown', this.unlockAudio);
+    window.addEventListener('keydown', this.unlockAudio);
+
     this.input.start();
     this.input.onDock(() => this.onDock());
 
@@ -265,6 +284,7 @@ export class Game {
     this.toastTimer = null;
     if (this.resizeHandler) window.removeEventListener('resize', this.resizeHandler);
     this.resizeHandler = null;
+    this.removeUnlockListeners();
     this.input.stop();
     this.audio?.dispose();
     this.audio = null;
@@ -324,15 +344,6 @@ export class Game {
     this.audio?.click();
     this.state = { ...this.state, activePanel: null };
     this.emit();
-  }
-
-  goHome(): void {
-    this.audio?.click();
-    this.autopilot = true;
-    if (this.state.activePanel) {
-      this.state = { ...this.state, activePanel: null };
-      this.emit();
-    }
   }
 
   toggleSound(): void {
@@ -421,28 +432,6 @@ export class Game {
     }
   }
 
-  // Autopilot home: returns input overrides until close enough to disengage.
-  private autopilotInput(): { throttle: number; turn: number } | null {
-    if (!this.autopilot || !this.boat || this.islands.length === 0) return null;
-    const home = this.islands[0]; // buildAllIslands puts home at index 0
-    const dir = home.dock.clone().sub(this.boat.group.position);
-    dir.y = 0;
-    const dist = dir.length();
-    if (dist < 18) {
-      this.autopilot = false;
-      return null;
-    }
-    dir.normalize();
-    const target = Math.atan2(-dir.x, -dir.z);
-    let diff = target - this.boatAngle;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    return {
-      throttle: 0.9,
-      turn: Math.max(-1, Math.min(1, diff * 1.6)),
-    };
-  }
-
   private updateLabels(t: number): void {
     if (!this.boat) return;
     for (const is of this.islands) {
@@ -507,7 +496,8 @@ export class Game {
     ctx.textAlign = 'center';
     ctx.fillText('N', cx, 13);
 
-    // islands — visited get a gold ring
+    // islands — visited get a gold ring; each dot gets its name beneath it
+    ctx.textAlign = 'center';
     for (const is of this.islands) {
       let x = cx + is.pos.x * sc;
       let y = cy + is.pos.z * sc;
@@ -522,6 +512,11 @@ export class Game {
       ctx.strokeStyle = seen ? '#ffd43b' : '#fff';
       ctx.lineWidth = seen ? 2.5 : 1.5;
       ctx.stroke();
+      // label under the dot (above it when clamped near the bottom edge)
+      ctx.font = 'bold 8px Nunito,sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,.9)';
+      const ly = y > H - 20 ? y - 9 : y + 15;
+      ctx.fillText(is.title, x, ly);
       ctx.globalAlpha = 1;
     }
 
@@ -530,7 +525,10 @@ export class Game {
     const by = Math.max(8, Math.min(H - 8, cy + this.boat.group.position.z * sc));
     ctx.save();
     ctx.translate(bx, by);
-    ctx.rotate(this.boatAngle);
+    // World forward is (-sin A, -cos A); the up-pointing triangle rotated by
+    // θ points along (sin θ, -cos θ) — so θ = -A, NOT +A (that mirrors
+    // east/west headings).
+    ctx.rotate(-this.boatAngle);
     ctx.beginPath();
     ctx.moveTo(0, -8);
     ctx.lineTo(5.5, 6);
@@ -551,13 +549,7 @@ export class Game {
     const dt = Math.min(0.05, this.clock.getDelta());
     const t = this.clock.elapsedTime;
 
-    // Input — autopilot can override throttle/turn.
-    let { throttle, turn } = this.input.read();
-    const auto = this.autopilotInput();
-    if (auto) {
-      throttle = auto.throttle;
-      turn = auto.turn;
-    }
+    const { throttle, turn } = this.input.read();
 
     // Motion model from the prototype.
     this.speed += throttle * 40 * dt;
@@ -596,8 +588,8 @@ export class Game {
     this.gullTimer -= dt;
     if (this.gullTimer <= 0) {
       if (this.state.soundOn && nightAmount < 0.5) this.audio?.gull();
-      // Gulls call more often in bright daylight, sparsely toward dusk.
-      this.gullTimer = 4 + Math.random() * 7;
+      // Each call plays a ~4s recording slice, so leave real gaps between.
+      this.gullTimer = 10 + Math.random() * 12;
     }
 
     // ---- wake particles ----

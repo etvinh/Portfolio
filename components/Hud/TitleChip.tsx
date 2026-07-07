@@ -1,4 +1,5 @@
-// Top-left chip: title, control hint, discovered count.
+// Top-left chip: control hint + discovered count. (Deliberately no game
+// title — the world speaks for itself.)
 
 type Props = {
   discovered: number;
@@ -22,22 +23,9 @@ export function TitleChip({ discovered, total }: Props) {
     >
       <div
         style={{
-          fontFamily: '"Baloo 2", sans-serif',
-          fontWeight: 800,
-          fontSize: 19,
-          color: '#e8590c',
-          letterSpacing: '.3px',
-          lineHeight: 1,
-        }}
-      >
-        Brick&nbsp;Voyage
-      </div>
-      <div
-        style={{
           fontSize: 11.5,
           fontWeight: 700,
           color: '#5a6b7a',
-          marginTop: 5,
         }}
       >
         WASD&nbsp;/&nbsp;arrows to sail&nbsp;&nbsp;·&nbsp;&nbsp;E to dock

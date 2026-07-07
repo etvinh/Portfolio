@@ -1,4 +1,4 @@
-// Bottom-right minimap + "Lost? Sail home" button.
+// Bottom-right minimap.
 //
 // The canvas is owned by React (ref'd here), but the Game class draws to it
 // every frame via setMinimapCanvas(). We pass the element on mount and
@@ -44,24 +44,6 @@ export function MinimapHud({ game }: Props) {
           background: '#0b3a66',
         }}
       />
-      <button
-        onClick={() => game.goHome()}
-        style={{
-          fontFamily: '"Baloo 2", sans-serif',
-          fontWeight: 700,
-          fontSize: 13,
-          color: '#fff',
-          background: '#1c7ed6',
-          border: 'none',
-          borderBottom: '4px solid #1457a0',
-          borderRadius: 13,
-          padding: '9px 16px',
-          cursor: 'pointer',
-          boxShadow: '0 5px 14px rgba(20,87,160,.35)',
-        }}
-      >
-        Lost? Sail home
-      </button>
     </div>
   );
 }

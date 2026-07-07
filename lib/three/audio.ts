@@ -1,9 +1,13 @@
-// Synthesized WebAudio — no external files.
+// WebAudio — synthesized except for one real recording.
 //
-// Three sounds total:
+// Sounds:
 //   - Ambient ocean (looping low-passed noise with a slow LFO swell)
 //   - Dock chime (3-note arpeggio)
 //   - UI click (triangle sweep)
+//   - Seagulls: /sounds/seagull.mp3 — a real herring-gull recording
+//     (xeno-canto XC707075 by Sonothèque ADVL, CC0, via Wikimedia Commons).
+//     Synthesis attempts kept landing between kazoo and alarm; a 580 KB CC0
+//     recording is the pragmatic fix. Each call plays a random slice.
 //
 // Lazy-init: AudioContext only spins up on the first setOn(true) call so we
 // don't hit autoplay restrictions or open an unused audio graph.
@@ -25,6 +29,25 @@ export function createAudio(reducedMotion: boolean): GameAudio | null {
 
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null;
+  let gullBuf: AudioBuffer | null = null;
+  let gullLoading = false;
+
+  // Fetch + decode the gull recording once, in the background. Kicked off
+  // from init() so the buffer is usually ready before the first daytime call.
+  const loadGull = (): void => {
+    if (gullBuf || gullLoading || !ctx) return;
+    gullLoading = true;
+    fetch('/sounds/seagull.mp3')
+      .then((r) => r.arrayBuffer())
+      .then((ab) => ctx!.decodeAudioData(ab))
+      .then((buf) => {
+        gullBuf = buf;
+      })
+      .catch(() => {
+        // No gulls if the fetch fails — the game doesn't care.
+        gullLoading = false;
+      });
+  };
 
   const init = (): void => {
     if (ctx) return;
@@ -66,6 +89,8 @@ export function createAudio(reducedMotion: boolean): GameAudio | null {
     lfo.connect(lfoG);
     lfoG.connect(ocean.gain);
     lfo.start();
+
+    loadGull();
   };
 
   return {
@@ -96,40 +121,33 @@ export function createAudio(reducedMotion: boolean): GameAudio | null {
       });
     },
 
-    // Distant seagull cry — a short burst of 2-4 descending "kee-aw" caws.
-    // Each caw is a sawtooth swept down in pitch, bandpassed to a bird-like
-    // formant, with a fast pluck envelope. Pitches + counts are randomized so
-    // repeated calls don't sound identical.
+    // Distant seagulls — plays a random ~4s slice of the real recording with
+    // a fade at each end so cuts never click. Skips silently until the
+    // buffer has loaded/decoded.
     gull: () => {
-      if (!ctx || !master) return;
+      if (!ctx || !master || !gullBuf) return;
       const t0 = ctx.currentTime;
-      const caws = 2 + Math.floor(Math.random() * 3);
-      const basePitch = 900 + Math.random() * 500;
-      for (let i = 0; i < caws; i++) {
-        const s = t0 + i * (0.16 + Math.random() * 0.07);
-        const o = ctx.createOscillator();
-        o.type = 'sawtooth';
-        const f = basePitch * (1 - i * 0.08);
-        o.frequency.setValueAtTime(f * 1.25, s);
-        o.frequency.exponentialRampToValueAtTime(f * 0.8, s + 0.13);
+      const slice = Math.min(3.5 + Math.random() * 1.5, gullBuf.duration);
+      const offset = Math.random() * Math.max(0, gullBuf.duration - slice);
+      const src = ctx.createBufferSource();
+      src.buffer = gullBuf;
 
-        const bp = ctx.createBiquadFilter();
-        bp.type = 'bandpass';
-        bp.frequency.value = f;
-        bp.Q.value = 6;
+      // Soften the top end a touch so the birds sit "far away".
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 5200;
 
-        const g = ctx.createGain();
-        // Quiet + distant; sits under the ocean ambient.
-        g.gain.setValueAtTime(0, s);
-        g.gain.linearRampToValueAtTime(0.07, s + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.001, s + 0.16);
+      const env = ctx.createGain();
+      const peak = 0.32 + Math.random() * 0.12;
+      env.gain.setValueAtTime(0, t0);
+      env.gain.linearRampToValueAtTime(peak, t0 + 0.5);
+      env.gain.setValueAtTime(peak, t0 + slice - 0.7);
+      env.gain.linearRampToValueAtTime(0, t0 + slice);
 
-        o.connect(bp);
-        bp.connect(g);
-        g.connect(master!);
-        o.start(s);
-        o.stop(s + 0.2);
-      }
+      src.connect(lp);
+      lp.connect(env);
+      env.connect(master);
+      src.start(t0, offset, slice);
     },
 
     click: () => {

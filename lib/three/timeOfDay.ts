@@ -83,7 +83,7 @@ const KEYS: TODKey[] = [
     foamTint: '#ffd8b0',
     lampIntensity: 0.5,
     bloomStrength: 0.7,
-    exposure: 0.7,
+    exposure: 0.76,
   },
   {
     t: 0.45,
@@ -103,7 +103,7 @@ const KEYS: TODKey[] = [
     foamTint: '#ffffff',
     lampIntensity: 0.0,
     bloomStrength: 0.45,
-    exposure: 0.6,
+    exposure: 0.74,
   },
   {
     t: 0.68,
@@ -123,7 +123,7 @@ const KEYS: TODKey[] = [
     foamTint: '#ffcfb0',
     lampIntensity: 0.7,
     bloomStrength: 0.75,
-    exposure: 0.72,
+    exposure: 0.77,
   },
   {
     t: 0.85,

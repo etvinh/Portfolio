@@ -6,12 +6,13 @@ export const neonIsland: IslandDef = {
   id: 'neon',
   title: 'Projects',
   panel: 'neon',
-  x: -120,
-  z: -106,
+  // North of Home Harbor (spawn water to the south stays open).
+  x: 10,
+  z: -115,
   radius: 13,
   mini: '#b0b8c0',
   grass: '#9fce7a',
-  labelY: 26,
+  labelY: 23, // just clears the dome finial (~y=20)
   build: (g, h) => {
     // stepped marble base
     const steps1 = h.box(17, 1.2, 14, '#dfe6ec');
@@ -31,18 +32,25 @@ export const neonIsland: IslandDef = {
     const plinth = h.box(13.6, 1.0, 9.6, '#dfe6ec');
     plinth.position.set(0, 5.4, -1);
     g.add(plinth);
+    // Foundation under the hall: the steps only run along the front, so
+    // without this the building's rear sat on air (plinth bottom ~4.9 vs
+    // grass ~2.95). Front face is hidden inside the steps.
+    const foundation = h.box(13.6, 2.2, 9.6, '#dfe6ec');
+    foundation.position.set(0, 3.85, -1);
+    g.add(foundation);
 
-    // square block columns with caps + bases
+    // square block columns with caps + bases — bases sit flush on the top
+    // step (y=5.0), shafts run from inside the base up into the caps.
     for (let i = 0; i < 5; i++) {
       const cx = -6 + i * 3;
-      const shaft = h.box(1.3, 7.4, 1.3, '#ffffff');
-      shaft.position.set(cx, 9.6, 4.5);
+      const shaft = h.box(1.3, 7.9, 1.3, '#ffffff');
+      shaft.position.set(cx, 9.35, 4.5);
       g.add(shaft);
       const cap = h.box(1.8, 0.8, 1.8, '#f2f5f8');
       cap.position.set(cx, 13.5, 4.5);
       g.add(cap);
       const bs = h.box(1.8, 0.8, 1.8, '#f2f5f8');
-      bs.position.set(cx, 5.9, 4.5);
+      bs.position.set(cx, 5.4, 4.5);
       g.add(bs);
     }
 
@@ -82,10 +90,7 @@ export const neonIsland: IslandDef = {
     finial.position.set(0, 19.7, -1.5);
     g.add(finial);
 
-    // doors + windows
-    const door = h.box(2.6, 4.8, 0.5, '#8499a8');
-    door.position.set(0, 6.8, 4.7);
-    g.add(door);
+    // windows
     [-3.6, 3.6].forEach((wx) => {
       const w = h.box(1.5, 2.4, 0.4, '#bcd4ea', {
         emissive: new THREE.Color('#cfe4f5'),

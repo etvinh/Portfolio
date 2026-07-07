@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { box, cyl, M } from './primitives';
 
-// Blocky voxel tug ported from the prototype. Two groups:
+// Blocky voxel sailboat. Two groups:
 //   - outer `group`: the thing you translate around (anchored at sea level)
 //   - inner `model`: the actual mesh — bobs/banks/pitches relative to `group`
 //
@@ -20,9 +20,11 @@ export type Boat = {
 export function createBoat(hullColor: string): Boat {
   const group = new THREE.Group();
   const model = new THREE.Group();
-  const hullMat = M(hullColor, { roughness: 0.6 });
+  // Wooden hull — plank brown, rougher than the toy-plastic default.
+  // `hullColor` still tints the masthead pennant.
+  const hullMat = M('#8a5a2b', { roughness: 0.78 });
 
-  const keel = box(2.9, 1.0, 5.0, '#a51111');
+  const keel = box(2.9, 1.0, 5.0, '#4a2f17');
   keel.position.y = 0.5;
   model.add(keel);
 
@@ -32,12 +34,21 @@ export function createBoat(hullColor: string): Boat {
   hull.position.y = 1.45;
   model.add(hull);
 
-  const bow = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.2, 1.3), hullMat);
-  bow.castShadow = true;
-  bow.position.set(0, 1.9, -2.05);
-  model.add(bow);
+  // ---- pointed bow ----
+  // A tapering step, then a 45°-rotated block whose corner leads — an
+  // actual point at the prow instead of a flat slab.
+  const bowStep = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.2, 1.4), hullMat);
+  bowStep.castShadow = true;
+  bowStep.position.set(0, 1.55, -3.1);
+  model.add(bowStep);
+  const prow = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.15, 1.7), hullMat);
+  prow.castShadow = true;
+  prow.rotation.y = Math.PI / 4;
+  prow.position.set(0, 1.6, -3.5);
+  model.add(prow);
 
-  const trim = box(3.6, 0.4, 5.6, '#ffffff');
+  // Gunwale trim in a lighter wood.
+  const trim = box(3.6, 0.4, 5.6, '#caa46a');
   trim.position.y = 2.15;
   model.add(trim);
 
@@ -45,62 +56,56 @@ export function createBoat(hullColor: string): Boat {
   deck.position.set(0, 2.35, 0.2);
   model.add(deck);
 
-  const cabin = box(2.0, 1.4, 2.0, '#ffffff');
-  cabin.position.set(0, 3.2, 1.1);
-  model.add(cabin);
-
-  const cwin = box(2.06, 0.6, 1.2, '#3a8fd6');
-  cwin.position.set(0, 3.4, 1.1);
-  model.add(cwin);
-
-  const croof = box(2.3, 0.35, 2.3, '#ffd43b');
-  croof.position.set(0, 4.0, 1.1);
-  model.add(croof);
-
   // ---- sailing rig ----
-  // Tall mast amidships. Sails are built from stacked boxes that taper toward
-  // the top so the voxel silhouette reads as a triangular sail instead of a
-  // slab. A slight roll on each panel suggests wind-fill.
-  const mast = box(0.3, 8.2, 0.3, '#8a5a2b');
+  // Tall mast amidships. Both sails are stepped right triangles: every
+  // mainsail panel's FRONT edge sits flush against the mast (a straight
+  // luff), with panel depth shrinking as it climbs so the free edge steps
+  // inward — a clean triangular silhouette. The jib mirrors that forward of
+  // the mast: rear edges aligned, hanging toward the bowsprit.
+  const mast = box(0.3, 8.6, 0.3, '#8a5a2b');
   mast.position.set(0, 5.6, -0.2);
   model.add(mast);
 
-  const boom = box(0.24, 0.24, 3.4, '#8a5a2b');
-  boom.position.set(0, 2.9, 0.6);
+  // Boom along the mainsail's foot.
+  const boom = box(0.24, 0.24, 3.6, '#8a5a2b');
+  boom.position.set(0, 2.85, 1.75);
   model.add(boom);
 
-  // Mainsail — three tapering panels stacked up the mast, aft of it.
+  // Mainsail — aft of the mast; luff at z=0.05, leech stepping in.
   const mainPanels: [number, number, number][] = [
     // [centerY, height, depth(=fore-aft length)]
-    [3.5, 1.4, 3.0],
-    [4.9, 1.4, 2.2],
-    [6.2, 1.3, 1.3],
+    [3.55, 1.3, 3.2],
+    [4.85, 1.3, 2.5],
+    [6.15, 1.3, 1.85],
+    [7.45, 1.3, 1.2],
+    [8.6, 1.0, 0.6],
   ];
   mainPanels.forEach(([py, hh, dd]) => {
-    const s = box(0.16, hh, dd, '#ffffff', { roughness: 0.9 });
-    s.position.set(0, py, 0.6 + (3.0 - dd) * 0.25);
-    s.rotation.x = 0.06; // gentle wind-fill curve
+    const s = box(0.14, hh, dd, '#ffffff', { roughness: 0.9 });
+    s.position.set(0, py, 0.05 + dd / 2);
     model.add(s);
   });
 
-  // Jib — smaller foresail forward of the mast.
+  // Jib — forward of the mast; rear edges aligned at z=-0.55.
   const jibPanels: [number, number, number][] = [
-    [3.2, 1.3, 1.7],
-    [4.3, 1.2, 1.0],
+    [3.3, 1.2, 1.9],
+    [4.5, 1.2, 1.3],
+    [5.6, 1.0, 0.7],
   ];
   jibPanels.forEach(([py, hh, dd]) => {
-    const j = box(0.14, hh, dd, '#ffe3c2', { roughness: 0.9 });
-    j.position.set(0, py, -1.7 - (1.7 - dd) * 0.3);
+    const j = box(0.12, hh, dd, '#ffe3c2', { roughness: 0.9 });
+    j.position.set(0, py, -0.55 - dd / 2);
     model.add(j);
   });
 
-  // Forestay-ish bowsprit so the jib has something to hang off.
-  const sprit = box(0.16, 0.16, 1.2, '#8a5a2b');
-  sprit.position.set(0, 2.55, -2.6);
+  // Bowsprit running out over the pointed prow.
+  const sprit = box(0.16, 0.16, 1.6, '#6d4c41');
+  sprit.position.set(0, 2.45, -3.9);
   model.add(sprit);
 
+  // Pennant at the masthead.
   const flag = box(0.1, 0.7, 0.9, hullColor);
-  flag.position.set(0, 9.4, -0.05);
+  flag.position.set(0, 9.55, 0.35);
   model.add(flag);
 
   // ---- stern night lantern (the boat's night light) ----
@@ -146,13 +151,13 @@ export function createBoat(hullColor: string): Boat {
   for (let i = 0; i < 5; i++) {
     const pz = -1.7 + i * 0.85;
     [-1.5, 1.5].forEach((sx) => {
-      const pst = box(0.12, 0.55, 0.12, '#ffffff');
+      const pst = box(0.12, 0.55, 0.12, '#6d4c41');
       pst.position.set(sx, 2.55, pz);
       model.add(pst);
     });
   }
   [-1.5, 1.5].forEach((sx) => {
-    const rail = box(0.09, 0.09, 4.0, '#ffffff');
+    const rail = box(0.09, 0.09, 4.0, '#8a5a2b');
     rail.position.set(sx, 2.85, -0.3);
     model.add(rail);
   });

@@ -10,7 +10,9 @@ export function M(color: string | number, opts?: MatOpts): THREE.MeshStandardMat
   return new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
     flatShading: true,
-    roughness: 0.82,
+    // Toy-plastic sheen — molded blocks pick up a soft sun highlight. The
+    // old 0.82 read as matte painted wood.
+    roughness: 0.55,
     metalness: 0,
     ...opts,
   });
@@ -62,70 +64,45 @@ export function sph(r: number, color: string | number, opts?: MatOpts): THREE.Me
   return m;
 }
 
-// LEGO-style stud — used in places where authenticity warrants it.
-export function stud(color: string | number): THREE.Mesh {
-  return cyl(0.42, 0.42, 0.28, color, 12);
-}
-
-export function addStuds(
-  parent: THREE.Object3D,
-  topY: number,
-  color: string | number,
-  coords: [number, number][],
-): void {
-  coords.forEach(([x, z]) => {
-    const s = stud(color);
-    s.position.set(x, topY + 0.14, z);
-    parent.add(s);
-  });
-}
-
 // ---- scenery ----
 
+// LEGO-build tree: a square trunk of stacked brick segments and a symmetric
+// stepped canopy — concentric square tiers tapering to a cap, the way a real
+// brick tree is built up plate by plate. Everything axis-aligned; variety
+// comes from scale + leaf tone, not from randomly intersecting blobs.
 export function tree(x: number, z: number, s: number, leaf?: string): THREE.Group {
   const tg = new THREE.Group();
-  const bark = '#7a4a24';
-  const bark2 = '#8a5a2b';
-  const t1 = box(0.7 * s, 1.1 * s, 0.7 * s, bark);
-  t1.position.y = 0.55 * s;
+  const t1 = box(0.8 * s, 1.2 * s, 0.8 * s, '#7a4a24');
+  t1.position.y = 0.6 * s;
   tg.add(t1);
-  const t2 = box(0.6 * s, 1.1 * s, 0.6 * s, bark2);
-  t2.position.set(0.06 * s, 1.5 * s, -0.04 * s);
+  const t2 = box(0.8 * s, 1.2 * s, 0.8 * s, '#8a5a2b');
+  t2.position.y = 1.8 * s;
   tg.add(t2);
-  const root1 = box(0.4 * s, 0.4 * s, 0.4 * s, bark);
-  root1.position.set(0.42 * s, 0.2 * s, 0.1 * s);
-  tg.add(root1);
-  const root2 = box(0.4 * s, 0.4 * s, 0.4 * s, bark);
-  root2.position.set(-0.4 * s, 0.2 * s, -0.18 * s);
-  tg.add(root2);
-  const branch = box(0.34 * s, 0.34 * s, 0.9 * s, bark2);
-  branch.position.set(0.5 * s, 1.7 * s, 0.3 * s);
-  branch.rotation.x = 0.4;
-  tg.add(branch);
 
   const l1 = leaf || '#2f9e44';
   const l2 = leaf || '#43b35a';
   const l3 = leaf || '#268a3c';
-  const blob = (bx: number, by: number, bz: number, w: number, hh: number, dd: number, c: string) => {
-    const m = box(w * s, hh * s, dd * s, c);
-    m.position.set(bx * s, by * s, bz * s);
+  const tier = (by: number, w: number, hh: number, c: string) => {
+    const m = box(w * s, hh * s, w * s, c);
+    m.position.y = by * s;
     tg.add(m);
   };
-  blob(0, 2.7, 0, 2.6, 1.0, 2.6, l1);
-  blob(-1.1, 2.9, 0.5, 1.2, 0.9, 1.2, l3);
-  blob(1.1, 2.8, -0.6, 1.3, 1.0, 1.3, l3);
-  blob(0.5, 3.0, 1.1, 1.1, 0.9, 1.1, l2);
-  blob(0, 3.7, 0, 2.0, 1.0, 2.0, l2);
-  blob(-0.7, 4.0, -0.5, 1.1, 0.9, 1.1, l1);
-  blob(0.7, 4.1, 0.4, 1.0, 0.9, 1.0, l1);
-  blob(0, 4.7, 0, 1.2, 1.0, 1.2, l2);
-  blob(0, 5.4, 0.1, 0.6, 0.6, 0.6, l3);
+  tier(2.9, 3.2, 1.0, l1);
+  tier(3.9, 2.4, 1.0, l2);
+  tier(4.9, 1.6, 1.0, l1);
+  tier(5.7, 0.8, 0.8, l3);
 
   tg.position.set(x, 2.8, z);
-  tg.rotation.y = ((x * 13.1 + z * 7.7) % 6.28);
+  // Snap to 90° steps — a brick build can sit rotated on the plate, but only
+  // in right angles.
+  tg.rotation.y = (Math.floor(Math.abs(x * 13.1 + z * 7.7)) % 4) * (Math.PI / 2);
   return tg;
 }
 
+// LEGO-build rock: axis-aligned grey bricks stepping up and inward, like
+// stacked slopes on a baseplate. The old version rotated each block a few
+// degrees, which made boxes knife through each other — something physical
+// bricks can't do.
 export function rock(x: number, z: number, s: number, col?: string): THREE.Group {
   const rg = new THREE.Group();
   const c1 = col || '#7d8488';
@@ -134,15 +111,13 @@ export function rock(x: number, z: number, s: number, col?: string): THREE.Group
   const blk = (bx: number, by: number, bz: number, w: number, hh: number, dd: number, c: string) => {
     const m = box(w, hh, dd, c);
     m.position.set(bx, by, bz);
-    m.rotation.y = (bx + bz) * 0.3;
     rg.add(m);
   };
-  blk(0, 0.6 * s, 0, 1.5 * s, 1.2 * s, 1.5 * s, c1);
-  blk(0.85 * s, 0.45 * s, 0.2 * s, 1.0 * s, 0.9 * s, 1.1 * s, c2);
-  blk(-0.7 * s, 0.4 * s, -0.4 * s, 0.9 * s, 0.8 * s, 0.9 * s, c3);
-  blk(0.2 * s, 1.25 * s, -0.3 * s, 0.9 * s, 0.8 * s, 0.9 * s, c2);
-  blk(-0.3 * s, 1.0 * s, 0.6 * s, 0.7 * s, 0.6 * s, 0.7 * s, c1);
-  blk(0.5 * s, 1.6 * s, 0.25 * s, 0.5 * s, 0.5 * s, 0.5 * s, c3);
+  blk(0, 0.6 * s, 0, 1.6 * s, 1.2 * s, 1.6 * s, c1);
+  blk(0.95 * s, 0.4 * s, 0.2 * s, 1.0 * s, 0.8 * s, 1.1 * s, c2);
+  blk(-0.85 * s, 0.35 * s, -0.3 * s, 0.9 * s, 0.7 * s, 0.9 * s, c3);
+  blk(0.15 * s, 1.5 * s, -0.15 * s, 1.0 * s, 0.6 * s, 1.0 * s, c2);
+  blk(0.15 * s, 2.0 * s, -0.15 * s, 0.6 * s, 0.4 * s, 0.6 * s, c3);
   rg.position.set(x, 2.6, z);
   return rg;
 }
@@ -175,7 +150,7 @@ export function flower(x: number, z: number, col?: string): THREE.Group {
   top.position.y = 1.5;
   fg.add(top);
   fg.position.set(x, 2.8, z);
-  fg.rotation.y = (x * 5.3 + z) % 6.28;
+  fg.rotation.y = (Math.floor(Math.abs(x * 5.3 + z)) % 4) * (Math.PI / 2);
   return fg;
 }
 
@@ -213,8 +188,6 @@ export type Primitives = {
   cyl: typeof cyl;
   cone: typeof cone;
   sph: typeof sph;
-  stud: typeof stud;
-  addStuds: typeof addStuds;
   tree: typeof tree;
   rock: typeof rock;
   flower: typeof flower;
@@ -228,8 +201,6 @@ export const primitives: Primitives = {
   cyl,
   cone,
   sph,
-  stud,
-  addStuds,
   tree,
   rock,
   flower,

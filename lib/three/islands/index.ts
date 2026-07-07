@@ -7,8 +7,7 @@ import { neonIsland } from './neon';
 
 export type { Island } from './builder';
 
-// Order matters: islands[0] is "home", used by the autopilot when the player
-// taps "Lost? Sail home".
+// islands[0] is Home Harbor — the center of the archipelago.
 export function buildAllIslands(scene: THREE.Scene): Island[] {
   return [
     mkIsland(scene, homeIsland),

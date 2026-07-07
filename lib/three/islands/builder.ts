@@ -8,10 +8,6 @@ import { mulberry32 } from '../rng';
 
 export type Collider = { x: number; z: number; r: number };
 
-// Foam emitters fed to the water shader's per-rock "waves crashing on rocks"
-// loop. World-space x/z + a radius that controls splash spread.
-export type FoamRock = { x: number; z: number; radius: number };
-
 export type BuildHelpers = Primitives & { radius: number };
 
 // Builders may return a per-frame ticker (e.g. socials' rotating lighthouse
@@ -44,9 +40,6 @@ export type Island = {
   group: THREE.Group;
   collR: number;
   colliders: Collider[];
-  // World-space rock positions surfaced for the water shader's per-rock
-  // splash foam. Built from each island's perimeter rocks.
-  rocks: FoamRock[];
   // Dock-lamp emissive materials (kept here so the TimeOfDay controller can
   // ramp emissive intensity up at dusk).
   lampMaterials: THREE.MeshStandardMaterial[];
@@ -57,8 +50,7 @@ export type Island = {
 };
 
 // Build irregular voxel "lumps" that form the coastline. Returns the lump
-// rectangles AND the local-space perimeter rock positions so the caller can
-// derive both circle colliders and per-rock foam emitters from the same RNG.
+// rectangles so the caller can derive circle colliders from the same RNG.
 function makeLand(
   g: THREE.Group,
   radius: number,
@@ -67,7 +59,6 @@ function makeLand(
   seed: number,
 ): {
   lumps: Array<[number, number, number, number]>;
-  rocks: Array<[number, number, number]>; // local x, z, half-extent
 } {
   const rnd = mulberry32(seed);
   const beach = beachCol || '#e7c98a';
@@ -127,24 +118,10 @@ function makeLand(
     mound.position.set(mx, 3.4, mz);
     g.add(mound);
   }
-  // perimeter rocks — record positions so callers can feed them to the
-  // water shader as per-rock foam emitters.
-  const rocks: Array<[number, number, number]> = [];
-  for (let i = 0; i < 5; i++) {
-    const a = rnd() * 6.28;
-    const rr = radius * (0.98 + rnd() * 0.3);
-    const w = 1.4 + rnd() * 1.3;
-    const d2 = 1.4 + rnd() * 1.3;
-    const rk = box(w, 1.3, d2, i % 2 ? '#7d8488' : '#929a9e');
-    const rx = Math.cos(a) * rr;
-    const rz = Math.sin(a) * rr;
-    rk.position.set(rx, 1.0, rz);
-    rk.rotation.y = rnd();
-    g.add(rk);
-    rocks.push([rx, rz, Math.max(w, d2) * 0.5 + 1.2]);
-  }
+  // (Perimeter water rocks removed — they floated at the waterline and read
+  // as debris. On-land rocks are placed per-island via helpers.rock.)
 
-  return { lumps, rocks };
+  return { lumps };
 }
 
 // Length of the wooden pier in cv units, from the coast outward. The dock
@@ -293,7 +270,7 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
   const g = new THREE.Group();
   g.position.set(def.x, 0, def.z);
   const seed = Math.abs(Math.floor(def.x * 73.7 + def.z * 19.3)) + 7;
-  const { lumps, rocks: localRocks } = makeLand(g, def.radius, def.grass, def.beach, seed);
+  const { lumps } = makeLand(g, def.radius, def.grass, def.beach, seed);
 
   const extras = def.build(g, { ...primitives, radius: def.radius }) ?? undefined;
   scene.add(g);
@@ -311,7 +288,9 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
 
   const pier = buildPier(g, cv, def.radius);
 
-  const labelY = def.labelY ?? def.radius + 12;
+  // Keep labels low — just clearing the tallest props — so they sit near
+  // the island in view instead of floating far overhead.
+  const labelY = def.labelY ?? def.radius + 6;
   const label = makeLabel(def.title, def.mini);
   label.position.set(def.x, labelY, def.z);
   scene.add(label);
@@ -327,13 +306,6 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
     colliders.push({ x: def.x + cv.x * d, z: def.z + cv.z * d, r: 2.2 });
   }
 
-  // Translate local rock positions into world space + budget.
-  const rocks: FoamRock[] = localRocks.map(([rx, rz, rr]) => ({
-    x: def.x + rx,
-    z: def.z + rz,
-    radius: rr,
-  }));
-
   return {
     id: def.id,
     title: def.title,
@@ -344,7 +316,6 @@ export function mkIsland(scene: THREE.Scene, def: IslandDef): Island {
     group: g,
     collR: def.radius * 1.7,
     colliders,
-    rocks,
     lampMaterials: pier.lampMaterials,
     lampPointLights: pier.lampPointLights,
     label,

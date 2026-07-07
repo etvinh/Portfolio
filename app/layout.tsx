@@ -17,8 +17,8 @@ const nunito = Nunito({
 });
 
 export const metadata: Metadata = {
-  title: 'Brick Voyage',
-  description: 'Sail a brick boat between portfolio islands.',
+  title: 'Ethan Vinh',
+  description: 'Sail a wooden boat between portfolio islands.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

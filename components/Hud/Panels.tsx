@@ -149,7 +149,7 @@ function HomePanel({ onClose }: PanelProps) {
           }}
         >
           This is your home harbor. Sail out to explore the archipelago — each
-          island is a different part of my world.
+          island is a different part of my developer portfolio.
         </p>
         <div
           style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 9 }}
@@ -194,7 +194,7 @@ function HomePanel({ onClose }: PanelProps) {
             color: '#2b8a3e',
           }}
         >
-          WASD / arrows to sail · press E to dock · &ldquo;Sail home&rdquo; if you
+          WASD / arrows to sail · press E to dock · check the minimap if you
           get lost.
         </div>
         <div
@@ -222,25 +222,90 @@ function HomePanel({ onClose }: PanelProps) {
 }
 
 function HousePanel({ onClose }: PanelProps) {
+  const [tab, setTab] = useState<'bio' | 'resume'>('bio');
   return (
     <PanelShell
       headerColor="#fa5252"
-      headerLabel="About Me · Resume"
-      maxWidth={900}
-      scrollable={false}
+      headerLabel="About Me"
+      maxWidth={tab === 'resume' ? 900 : 520}
+      scrollable={tab === 'bio'}
       onClose={onClose}
     >
-      <iframe
-        src="/Ethan-Vinh-Resume.pdf#view=FitH"
-        title="Ethan Vinh — Resume"
+      {/* Tab row */}
+      <div
         style={{
-          display: 'block',
-          width: '100%',
-          height: '78vh',
-          border: 'none',
-          background: '#f4f4f4',
+          display: 'flex',
+          gap: 0,
+          padding: '14px 26px 0',
+          borderBottom: '2px solid #f1f3f5',
         }}
-      />
+      >
+        {(
+          [
+            ['bio', 'Bio'],
+            ['resume', 'Resume'],
+          ] as const
+        ).map(([id, label]) => {
+          const isActive = tab === id;
+          return (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              style={{
+                fontFamily: '"Baloo 2", sans-serif',
+                fontWeight: 800,
+                fontSize: 13,
+                color: isActive ? '#c92a2a' : '#8696a3',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: isActive ? '3px solid #fa5252' : '3px solid transparent',
+                marginBottom: -2,
+                padding: '8px 14px',
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === 'bio' ? (
+        <div style={{ padding: '22px 28px 28px' }}>
+          <div
+            style={{
+              fontFamily: '"Baloo 2", sans-serif',
+              fontWeight: 800,
+              fontSize: 26,
+              color: '#1d2b36',
+              lineHeight: 1.15,
+            }}
+          >
+            Hi, I&rsquo;m Ethan 👋
+          </div>
+          {/* TODO: replace with the real bio copy. */}
+          <p style={{ ...paragraphStyle, fontSize: 15, margin: '12px 0 0' }}>
+            I&rsquo;m a software engineer who likes building things end to end —
+            from embedded firmware and real-time sensor streams to full-stack
+            web apps. My passion for building started when I got my first computer
+            and learned to host my own Minecraft server. I began to create minigames
+            first with only commandblocks, and then with plugins. In my free time I
+            enjoy skiing, surfing and backpacking.
+          </p>
+        </div>
+      ) : (
+        <iframe
+          src="/Ethan-Vinh-Resume.pdf#view=FitH"
+          title="Ethan Vinh — Resume"
+          style={{
+            display: 'block',
+            width: '100%',
+            height: '72vh',
+            border: 'none',
+            background: '#f4f4f4',
+          }}
+        />
+      )}
     </PanelShell>
   );
 }
@@ -276,9 +341,8 @@ function SocialsPanel({ onClose }: PanelProps) {
           color="#fff"
           label="LinkedIn"
         />
-        {/* TODO: replace mailto with the real email */}
         <SocialLink
-          href="mailto:you@example.com"
+          href="mailto:ethan.vinh17@gmail.com"
           bg="#ffd43b"
           shadow="#e8a700"
           color="#3a2a12"
@@ -313,7 +377,7 @@ const PROJECT_TABS: ProjectTab[] = [
     label: 'KitGrail',
     title: 'KitGrail',
     description:
-      'Full-stack marketplace for vintage soccer jerseys, split into three purpose-built surfaces: a shopper storefront for browsing and checkout, a seller app for listing and inventory management, and an admin console for moderation and catalog oversight. A GraphQL API sits over a normalized PostgreSQL schema; Stripe handles payments and webhooks, and Google OAuth handles authentication. The whole system is deployed on AWS. Built with Next.js and React on the front end, with a shared component and type layer across all three apps.',
+      'Kitgrail is a full-stack web application created with Next.js and React, designed as a marketplace for vintage soccer jerseys. It is split into three distinct apps: a shopper app to browse listings, a seller app to post listing and an admin appfor moderation. This app was created for CSE 187 and I collaborated with a team of four developers: Aldridge Alegre, Alexander Skinderev and Dylan Paltiel. We implemented a CI/CD pipeline and focused on using trunk-based development. All apps are implemented with a microservices architecture using GraphQL and REST APIs with PostgreSQL for the database. Stripe handles payments and webhooks, and Google OAuth handles authentication. The whole system is deployed on AWS using Docker containers.',
     techTags: [
       { label: 'Next.js', color: '#fff', bg: '#1d2b36', shadow: '#0b1117' },
       { label: 'GraphQL', color: '#fff', bg: '#e535ab', shadow: '#a01f7a' },
@@ -334,11 +398,11 @@ const PROJECT_TABS: ProjectTab[] = [
     label: 'SafeFlex',
     title: 'SafeFlex',
     description:
-      "iOS rehab companion for a custom ESP32 wearable that tracks physical-therapy exercises in real time. Flex and IMU sensor data streams over WebSocket to a SwiftUI app that counts reps, scores range of motion and stability, and visualizes weekly progress, performance, and plan adherence. Includes AI-assisted onboarding that turns a user's pain description into a personalized exercise plan. Built with SwiftUI (MVVM, feature-first architecture) and Supabase (Postgres, auth, row-level security), with embedded C++ firmware. Began as a CruzHacks 2026 prototype (team of four) and earned university funding to build the second prototype after competing against 100+ teams.",
+      "Safeflex is a wearable device for post-surgical physical therapy that tracks and validates repetition form in real time using sensors. This project started out as a hackathon project created with FastAPI, HTML, CSS, and JS. However there was much room for improvement so I created a second prototype using Swift and SwiftUI to create an iOS app. The sensors were also switched from a flex sensor and gyroscope to two gyroscopes.",
     techTags: [
       { label: 'SwiftUI', color: '#fff', bg: '#fa7343', shadow: '#a83a14' },
-      { label: 'ESP32 / C++', color: '#fff', bg: '#e7352c', shadow: '#a01f18' },
-      { label: 'WebSocket', color: '#fff', bg: '#0082fc', shadow: '#0057a8' },
+      { label: 'C', color: '#fff', bg: '#e7352c', shadow: '#a01f18' },
+      { label: 'Swift', color: '#fff', bg: '#0082fc', shadow: '#0057a8' },
       { label: 'Supabase', color: '#fff', bg: '#3ecf8e', shadow: '#249d68' },
       { label: 'iOS', color: '#fff', bg: '#1d2b36', shadow: '#0b1117' },
     ],
@@ -356,7 +420,7 @@ const PROJECT_TABS: ProjectTab[] = [
   },
   {
     id: 'mptgt',
-    label: 'MPTGT',
+    label: 'MyGPT',
     title: 'Monty Python Trained Generative Transformer',
     description:
       "A decoder-only, GPT-style generative transformer trained to write in the voice of Monty Python and the Holy Grail, built from scratch in PyTorch and TensorFlow. The architecture follows Andrej Karpathy's \"Let's build GPT\" — character-level tokenization, multi-head self-attention, positional embeddings, residual connections, and layer normalization — implemented by hand rather than pulled from a library, with the attention head's key/query/value projections aggregated into batched weight matrices for efficiency. Trained on the film's screenplay, with inference optimized for Apple M2 silicon and the sampling temperature tuned to balance coherence against comedic surprise.",

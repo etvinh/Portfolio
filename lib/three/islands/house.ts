@@ -6,8 +6,9 @@ export const houseIsland: IslandDef = {
   id: 'house',
   title: 'About Me',
   panel: 'house',
-  x: 78,
-  z: -16,
+  // East of Home Harbor.
+  x: 95,
+  z: -25,
   radius: 14,
   mini: '#82d96b',
   grass: '#82d96b',
